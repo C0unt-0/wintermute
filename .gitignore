@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Data (raw binaries should never be committed)
+data/raw/
+data/processed/*.npy
+
+# Model weights
+*.safetensors
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,6 @@
+mlx>=0.22.0
+numpy>=1.26.0
+capstone>=5.0.0
+pefile>=2023.2.7
+requests>=2.31.0
+pyzipper>=0.3.6
