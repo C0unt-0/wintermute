@@ -82,7 +82,7 @@ def confusion_matrix(
     """
     Compute a confusion matrix.
 
-    Returns a num_classes × num_classes list of lists.
+    Returns a num_classes x num_classes list of lists.
     matrix[true_label][predicted_label] = count.
     """
     from wintermute.engine.trainer import batch_iterate
@@ -102,3 +102,66 @@ def confusion_matrix(
         matrix[true][pred] += 1
 
     return matrix
+
+
+def compute_macro_f1(model, x, y, batch_size: int, num_classes: int) -> float:
+    """Macro-averaged F1 over all classes. Uses model in inference mode."""
+    import numpy as np
+    from wintermute.engine.trainer import batch_iterate
+
+    preds, labels = [], []
+    for xb, yb in batch_iterate(x, y, batch_size, shuffle=False):
+        p = mx.argmax(model(xb), axis=1)
+        # Materialise the lazy MLX array before converting to Python list
+        mx.synchronize()
+        preds.extend(p.tolist())
+        labels.extend(yb.tolist())
+    p_arr, l_arr = np.array(preds), np.array(labels)
+    f1s = []
+    for c in range(num_classes):
+        tp = np.sum((p_arr == c) & (l_arr == c))
+        fp = np.sum((p_arr == c) & (l_arr != c))
+        fn = np.sum((p_arr != c) & (l_arr == c))
+        prec = tp / (tp + fp + 1e-9)
+        rec  = tp / (tp + fn + 1e-9)
+        f1s.append(2 * prec * rec / (prec + rec + 1e-9))
+    return float(np.mean(f1s))
+
+
+def compute_auc_roc(scores: "np.ndarray", labels: "np.ndarray") -> float:
+    """Binary AUC-ROC via trapezoidal rule."""
+    import numpy as np
+    idx = np.argsort(-scores)
+    ls = labels[idx]
+    n_pos, n_neg = np.sum(labels == 1), np.sum(labels == 0)
+    if n_pos == 0 or n_neg == 0:
+        return 0.5
+    tpr_curve = np.concatenate([[0.0], np.cumsum(ls) / n_pos])
+    fpr_curve = np.concatenate([[0.0], np.cumsum(1 - ls) / n_neg])
+    # np.trapz was removed in NumPy 2.0; use np.trapezoid when available.
+    _trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz", None)
+    return float(_trapz(tpr_curve, fpr_curve))
+
+
+def fpr_at_fnr_threshold(
+    scores: "np.ndarray", labels: "np.ndarray", target_fnr: float = 0.01
+) -> float:
+    """FPR when threshold is set to achieve target_fnr (miss rate).
+
+    Sweeps thresholds from lowest to highest and returns the FPR at the
+    first threshold where FNR >= target_fnr.  If no such threshold exists in
+    the observed score range (e.g. target_fnr=1.0 requires predicting nothing
+    as positive), returns 0.0.
+    """
+    import numpy as np
+    n_pos = int(np.sum(labels == 1))
+    n_neg = int(np.sum(labels == 0))
+    if n_pos == 0 or n_neg == 0:
+        return 0.0
+    for thresh in np.sort(np.unique(scores)):
+        pos_pred = scores >= thresh
+        fnr = np.sum((~pos_pred) & (labels == 1)) / n_pos
+        fpr = np.sum(pos_pred & (labels == 0)) / n_neg
+        if fnr >= target_fnr:
+            return float(fpr)
+    return 0.0
