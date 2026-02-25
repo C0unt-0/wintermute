@@ -31,9 +31,6 @@ from dataclasses import dataclass, field
 import mlx.core as mx
 import mlx.nn as nn
 
-# Re-export the base model for backward compatibility
-from wintermute.models.sequence import MalwareClassifier  # noqa: F401
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Configuration

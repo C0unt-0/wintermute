@@ -18,7 +18,6 @@ import mlx.optimizers as optim
 import numpy as np
 from omegaconf import OmegaConf
 
-from wintermute.models.sequence import MalwareClassifier
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +150,8 @@ class Trainer:
 
         # 2. Build model --------------------------------------------------------
         print("Building model …")
-        model = MalwareClassifier(
+        from wintermute.models.transformer import MalBERT, MalBERTConfig
+        _cfg = MalBERTConfig(
             vocab_size=vocab_size,
             max_seq_length=mcfg.max_seq_length,
             dims=mcfg.dims,
@@ -160,10 +160,11 @@ class Trainer:
             mlp_dims=mcfg.mlp_dims,
             num_classes=mcfg.num_classes,
         )
+        model = MalBERT(_cfg)
 
         # Cast to bfloat16
         if tcfg.precision == "bfloat16":
-            MalwareClassifier.cast_to_bf16(model)
+            model.apply(lambda x: x.astype(mx.bfloat16))
 
         # Count parameters
         import mlx.utils
@@ -265,7 +266,7 @@ class Trainer:
     # ------------------------------------------------------------------
     @staticmethod
     def _compute_accuracy(
-        model: MalwareClassifier,
+        model: nn.Module,
         x: mx.array,
         y: mx.array,
         batch_size: int,

@@ -11,6 +11,7 @@ Usage:
     wintermute evaluate                        # evaluate saved model
     wintermute data build                      # build dataset from raw files
     wintermute data synthetic                  # generate synthetic test data
+    wintermute pretrain                        # MalBERT MLM pre-training
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ app = typer.Typer(
 
 data_app = typer.Typer(
     name="data",
-    help="Data pipeline commands (build, download, synthetic, cfg)",
+    help="Data pipeline commands (build, download, synthetic)",
     no_args_is_help=True,
 )
 app.add_typer(data_app, name="data")
@@ -150,88 +151,76 @@ def train(
 # ═══════════════════════════════════════════════════════════════════════════
 @app.command()
 def evaluate(
-    data_dir: str = typer.Option(
-        "data/processed", "--data-dir", "-d",
-        help="Directory containing x_data.npy, y_data.npy, vocab.json.",
-    ),
-    model: str = typer.Option(
-        "malware_model.safetensors", "--model", "-m",
-        help="Path to trained model weights.",
-    ),
-    config: str = typer.Option(
-        None, "--config",
-        help="Path to model_config.yaml (optional).",
-    ),
-    num_classes: int = typer.Option(2, "--num-classes", "-c", help="Number of classes."),
-    output: str = typer.Option(
-        "eval_metrics.json", "--output", "-o",
-        help="Path to save evaluation metrics JSON.",
-    ),
+    data_dir: str = typer.Option("data/processed", "--data-dir", "-d"),
+    model: str = typer.Option("malware_detector.safetensors", "--model", "-m"),
+    manifest: str = typer.Option("malware_detector_manifest.json", "--manifest"),
+    vocab: str = typer.Option("data/processed/vocab.json", "--vocab", "-v"),
+    output: str = typer.Option("eval_metrics.json", "--output", "-o"),
 ) -> None:
-    """Evaluate a trained model and produce metrics JSON."""
+    """Evaluate WintermuteMalwareDetector and produce metrics JSON."""
+    import hashlib
+    import json as _json
     import mlx.core as mx
     import numpy as np
+    from wintermute.engine.metrics import compute_macro_f1, compute_auc_roc, fpr_at_fnr_threshold
+    from wintermute.models.fusion import WintermuteMalwareDetector
 
-    from wintermute.engine.metrics import compute_accuracy, compute_f1, confusion_matrix
-    from wintermute.engine.trainer import Trainer
-    from wintermute.models.sequence import MalwareClassifier
+    dp = Path(data_dir)
+    with open(vocab) as f:
+        stoi = _json.load(f)
+    vocab_sha = hashlib.sha256(_json.dumps(stoi, sort_keys=True).encode()).hexdigest()
 
-    data_path = Path(data_dir)
-    model_path = Path(model)
+    typer.echo("Loading model ...")
+    detector = WintermuteMalwareDetector.load(str(model), str(manifest), vocab_sha256=vocab_sha)
+    WintermuteMalwareDetector.cast_to_bf16(detector)
 
-    if not model_path.exists():
-        typer.echo(f"[ERROR] Model not found: {model}", err=True)
-        raise typer.Exit(code=1)
+    typer.echo("Loading dataset ...")
+    x = mx.array(np.load(dp / "x_data.npy"))
+    y = mx.array(np.load(dp / "y_data.npy"))
 
-    # Load data
-    typer.echo("Loading dataset …")
-    x, y, vocab = Trainer.load_dataset(data_path)
-    vocab_size = len(vocab)
-
-    # Build and load model
-    typer.echo("Loading model …")
-    classifier = MalwareClassifier(
-        vocab_size=vocab_size,
-        num_classes=num_classes,
-    )
-    classifier.load_weights(str(model_path))
-    MalwareClassifier.cast_to_bf16(classifier)
-    classifier.eval()
-
-    # Evaluate
-    typer.echo("Computing metrics …")
+    typer.echo("Computing metrics ...")
     batch_size = 8
+    macro_f1 = compute_macro_f1(detector, x, y, batch_size, detector.config.num_classes)
 
-    acc = compute_accuracy(classifier, x, y, batch_size)
-    f1_result = compute_f1(classifier, x, y, batch_size, num_classes=num_classes)
-    cm = confusion_matrix(classifier, x, y, batch_size, num_classes=num_classes)
+    # Collect scores for AUC/FPR metrics
+    detector.eval()
+    all_scores, all_labels = [], []
+    n = x.shape[0]
+    for start in range(0, n, batch_size):
+        xb = x[start:start + batch_size]
+        yb = y[start:start + batch_size]
+        logits = detector(xb)
+        probs = mx.softmax(logits, axis=1)
+        mx.eval(probs)
+        scores = [probs[i, 1].item() for i in range(xb.shape[0])]
+        all_scores.extend(scores)
+        all_labels.extend(yb.tolist())
+    detector.train()
+
+    import numpy as _np
+    scores_np = _np.array(all_scores)
+    labels_np = _np.array(all_labels)
+
+    auc = compute_auc_roc(scores_np, labels_np)
+    fpr = fpr_at_fnr_threshold(scores_np, labels_np, target_fnr=0.01)
 
     metrics = {
-        "accuracy": acc,
-        "macro_f1": f1_result["macro"],
-        "per_class_f1": f1_result["per_class"],
-        "confusion_matrix": cm,
+        "macro_f1": macro_f1,
+        "auc_roc": auc,
+        "fpr_at_1pct_fnr": fpr,
         "num_samples": int(x.shape[0]),
-        "num_classes": num_classes,
-        "vocab_size": vocab_size,
+        "num_classes": detector.config.num_classes,
     }
-
-    # Save metrics
     with open(output, "w") as f:
-        json.dump(metrics, f, indent=2)
+        _json.dump(metrics, f, indent=2)
 
-    # Display results
-    typer.echo(f"\n{'=' * 50}")
-    typer.echo(f"  Evaluation Results")
-    typer.echo(f"{'=' * 50}")
-    typer.echo(f"  Accuracy:  {acc:.1%}")
-    typer.echo(f"  Macro F1:  {f1_result['macro']:.4f}")
-    typer.echo(f"  Samples:   {x.shape[0]}")
-    typer.echo(f"\n  Per-class F1:")
-    for i, f1 in enumerate(f1_result['per_class']):
-        typer.echo(f"    Class {i}: {f1:.4f}")
+    typer.echo(f"\n{'='*50}")
+    typer.echo(f"  Macro F1:        {macro_f1:.4f}")
+    typer.echo(f"  AUC-ROC:         {auc:.4f}")
+    typer.echo(f"  FPR@1%FNR:       {fpr:.4f}")
+    typer.echo(f"  Samples:         {x.shape[0]}")
     typer.echo(f"\n  Metrics saved to {output}")
-    typer.echo(f"{'=' * 50}\n")
+    typer.echo(f"{'='*50}\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -389,106 +378,6 @@ def pretrain(
     pretrainer = MLMPretrainer(config_path=config_path, overrides=overrides or None)
     pretrainer.pretrain(data_dir=data_dir)
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# wintermute data cfg
-# ═══════════════════════════════════════════════════════════════════════════
-@data_app.command("cfg")
-def data_cfg(
-    data_dir: str = typer.Option(
-        "data", "--data-dir", "-d",
-        help="Root data directory (contains raw/).",
-    ),
-    out_dir: str = typer.Option(
-        "data/processed/graphs", "--out-dir", "-o",
-        help="Output directory for graph tensors.",
-    ),
-) -> None:
-    """Extract Control Flow Graphs (CFG) from PE files via angr."""
-    import pickle
-    from wintermute.data.cfg import CFGExtractor, process_binary_to_graph
-    from wintermute.data.tokenizer import collect_pe_files
-
-    data_path = Path(data_dir)
-    output_path = Path(out_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # 1. Discover files
-    filepaths, labels = collect_pe_files(data_path)
-    if not filepaths:
-        typer.echo("[ERROR] No PE files found to process.")
-        raise typer.Exit(code=1)
-
-    typer.echo(f"Found {len(filepaths)} PE files to process for GNN.")
-
-    # 2. Extract CFGs
-    extractor = CFGExtractor()
-    processed_count = 0
-
-    for i, fp in enumerate(filepaths, 1):
-        typer.echo(f"  [{i}/{len(filepaths)}] Extracting CFG: {Path(fp).name} …")
-        graph_data = process_binary_to_graph(fp, extractor)
-        
-        if graph_data:
-            # Save graph as a pickle
-            sample_id = Path(fp).stem
-            save_file = output_path / f"{sample_id}.pkl"
-            
-            with open(save_file, "wb") as f:
-                pickle.dump({
-                    "graph": graph_data,
-                    "label": labels[i-1]
-                }, f)
-            
-            typer.echo(f"          → Processed {len(graph_data['nodes'])} nodes, "
-                       f"{len(graph_data['edges'])} edges")
-            processed_count += 1
-        else:
-            typer.echo(f"          → ⚠️  Extraction failed.")
-
-    typer.echo(f"\n✅  Successfully processed {processed_count}/{len(filepaths)} files.")
-    typer.echo(f"    Graphs saved to {output_path}/")
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# wintermute train-gnn
-# ═══════════════════════════════════════════════════════════════════════════
-@app.command("train-gnn")
-def train_gnn(
-    graphs_dir: str = typer.Option(
-        "data/processed/graphs", "--graphs-dir", "-g",
-        help="Directory containing graph .pkl files.",
-    ),
-    vocab: str = typer.Option(
-        "data/processed/vocab.json", "--vocab", "-v",
-        help="Path to vocab.json.",
-    ),
-    config: str = typer.Option(
-        None, "--config",
-        help="Path to gnn_config.yaml (optional).",
-    ),
-    epochs: int = typer.Option(None, "--epochs", "-e", help="Override epochs."),
-    lr: float = typer.Option(None, "--lr", help="Override learning rate."),
-    num_classes: int = typer.Option(None, "--num-classes", "-c", help="Override num classes."),
-    save_path: str = typer.Option(None, "--save-path", "-o", help="Override save path."),
-) -> None:
-    """Train the MalwareGNN model using Control Flow Graphs."""
-    from wintermute.engine.gnn_trainer import GNNTrainer
-
-    # Build overrides from CLI flags
-    overrides: dict = {}
-    if epochs is not None:
-        overrides.setdefault("training", {})["epochs"] = epochs
-    if lr is not None:
-        overrides.setdefault("training", {})["learning_rate"] = lr
-    if num_classes is not None:
-        overrides.setdefault("model", {})["num_classes"] = num_classes
-    if save_path is not None:
-        overrides.setdefault("training", {})["save_path"] = save_path
-
-    config_path = config or "configs/model_config.yaml"
-    trainer = GNNTrainer(config_path=config_path, overrides=overrides)
-    trainer.train(graphs_dir=graphs_dir, vocab_path=vocab)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

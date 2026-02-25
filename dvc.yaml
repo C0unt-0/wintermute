@@ -1,54 +1,56 @@
+# dvc.yaml
 stages:
-  # ─────────────────────────────────────────────────────────
-  # Stage 1: Generate synthetic data (or build from raw PEs)
-  # ─────────────────────────────────────────────────────────
-  prepare:
-    cmd: wintermute data synthetic --n-samples 500 --out-dir data/processed
+  disassemble:
+    cmd: wintermute data build --data-dir data
     deps:
-      - src/wintermute/data/augment.py
+      - src/wintermute/data/disassembler.py
       - src/wintermute/data/tokenizer.py
     outs:
       - data/processed/x_data.npy
       - data/processed/y_data.npy
       - data/processed/vocab.json
+      - data/processed/graphs/
     params:
       - configs/data_config.yaml:
           - max_seq_length
-          - synthetic
 
-  # ─────────────────────────────────────────────────────────
-  # Stage 2: Train the model
-  # ─────────────────────────────────────────────────────────
+  pretrain:
+    cmd: wintermute pretrain --data-dir data/processed
+    deps:
+      - data/processed/x_data.npy
+      - data/processed/vocab.json
+      - src/wintermute/models/transformer.py
+      - src/wintermute/engine/pretrain.py
+    outs:
+      - malbert_pretrained.safetensors:
+          cache: false
+
   train:
-    cmd: wintermute train --data-dir data/processed --config configs/model_config.yaml
+    cmd: wintermute train --data-dir data/processed --pretrained malbert_pretrained.safetensors
     deps:
       - data/processed/x_data.npy
       - data/processed/y_data.npy
       - data/processed/vocab.json
-      - src/wintermute/engine/trainer.py
-      - src/wintermute/models/sequence.py
-      - configs/model_config.yaml
+      - data/processed/graphs/
+      - malbert_pretrained.safetensors
+      - src/wintermute/models/fusion.py
+      - src/wintermute/models/gat.py
+      - src/wintermute/engine/joint_trainer.py
     outs:
-      - malware_model.safetensors:
+      - malware_detector.safetensors:
           cache: false
-    params:
-      - configs/model_config.yaml:
-          - model
-          - training
+      - malware_detector_manifest.json:
+          cache: false
     metrics:
       - metrics.json:
           cache: false
 
-  # ─────────────────────────────────────────────────────────
-  # Stage 3: Evaluate and produce metrics
-  # ─────────────────────────────────────────────────────────
   evaluate:
-    cmd: wintermute evaluate --data-dir data/processed --model malware_model.safetensors
+    cmd: wintermute evaluate --data-dir data/processed --model malware_detector.safetensors
     deps:
       - data/processed/x_data.npy
       - data/processed/y_data.npy
-      - data/processed/vocab.json
-      - malware_model.safetensors
+      - malware_detector.safetensors
       - src/wintermute/engine/metrics.py
     metrics:
       - eval_metrics.json:
