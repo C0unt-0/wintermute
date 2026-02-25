@@ -1,0 +1,17 @@
+# MalBERT Architecture Configuration (Phase 3)
+# ================================================
+
+malbert:
+  dims: 256
+  num_heads: 8
+  num_layers: 6
+  mlp_dims: 1024
+  dropout: 0.1
+  max_seq_length: 2048
+  num_classes: 9
+
+pretrain:
+  mask_prob: 0.15
+  epochs: 50
+  batch_size: 8
+  learning_rate: 1.0e-4

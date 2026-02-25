@@ -2,15 +2,25 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+dist/
+build/
 venv/
 .venv/
 
 # Data (raw binaries should never be committed)
 data/raw/
 data/processed/*.npy
+data/synthetic/
 
 # Model weights
 *.safetensors
+
+# DVC
+dvc.lock
+.dvc/
+
+# MLflow
+mlruns/
 
 # macOS
 .DS_Store

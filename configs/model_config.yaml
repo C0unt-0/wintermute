@@ -1,0 +1,20 @@
+# Wintermute Model & Training Configuration
+# ============================================
+
+model:
+  dims: 128
+  num_heads: 4
+  num_layers: 4
+  mlp_dims: 512
+  num_classes: 2           # 2 = binary (safe/malicious), 9 = MS malware families
+  max_seq_length: 2048
+
+training:
+  epochs: 20
+  batch_size: 8
+  learning_rate: 3.0e-4
+  weight_decay: 0.01
+  val_ratio: 0.2
+  seed: 42
+  precision: "bfloat16"
+  save_path: "malware_model.safetensors"

@@ -1,0 +1,55 @@
+stages:
+  # ─────────────────────────────────────────────────────────
+  # Stage 1: Generate synthetic data (or build from raw PEs)
+  # ─────────────────────────────────────────────────────────
+  prepare:
+    cmd: wintermute data synthetic --n-samples 500 --out-dir data/processed
+    deps:
+      - src/wintermute/data/augment.py
+      - src/wintermute/data/tokenizer.py
+    outs:
+      - data/processed/x_data.npy
+      - data/processed/y_data.npy
+      - data/processed/vocab.json
+    params:
+      - configs/data_config.yaml:
+          - max_seq_length
+          - synthetic
+
+  # ─────────────────────────────────────────────────────────
+  # Stage 2: Train the model
+  # ─────────────────────────────────────────────────────────
+  train:
+    cmd: wintermute train --data-dir data/processed --config configs/model_config.yaml
+    deps:
+      - data/processed/x_data.npy
+      - data/processed/y_data.npy
+      - data/processed/vocab.json
+      - src/wintermute/engine/trainer.py
+      - src/wintermute/models/sequence.py
+      - configs/model_config.yaml
+    outs:
+      - malware_model.safetensors:
+          cache: false
+    params:
+      - configs/model_config.yaml:
+          - model
+          - training
+    metrics:
+      - metrics.json:
+          cache: false
+
+  # ─────────────────────────────────────────────────────────
+  # Stage 3: Evaluate and produce metrics
+  # ─────────────────────────────────────────────────────────
+  evaluate:
+    cmd: wintermute evaluate --data-dir data/processed --model malware_model.safetensors
+    deps:
+      - data/processed/x_data.npy
+      - data/processed/y_data.npy
+      - data/processed/vocab.json
+      - malware_model.safetensors
+      - src/wintermute/engine/metrics.py
+    metrics:
+      - eval_metrics.json:
+          cache: false

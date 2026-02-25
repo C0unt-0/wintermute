@@ -1,0 +1,53 @@
+[project]
+name = "wintermute"
+version = "2.0.0"
+description = "MLX-powered static malware classifier — treats assembly as NLP"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "mlx>=0.22.0",
+    "numpy>=1.26.0",
+    "capstone>=5.0.0",
+    "pefile>=2023.2.7",
+    "requests>=2.31.0",
+    "pyzipper>=0.3.6",
+    "omegaconf>=2.3.0",
+    "typer[all]>=0.12.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+]
+mlops = [
+    "mlflow>=2.12.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.4.0",
+]
+all = [
+    "wintermute[api,mlops,dev]",
+    "angr>=9.2.0",
+]
+
+[project.scripts]
+wintermute = "wintermute.cli:app"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
