@@ -32,8 +32,18 @@ class TestAucRoc:
 
 class TestFprAtFnr:
     def test_zero_fnr_high_fpr(self):
-        fpr = fpr_at_fnr_threshold(np.array([0.9,0.8,0.3,0.2]), np.array([1,1,0,0]), 0.0)
+        # At target_fnr=0.0: threshold must be set low enough to catch all positives
+        # → FPR = 1.0 (all negatives flagged)
+        fpr = fpr_at_fnr_threshold(np.array([0.9, 0.8, 0.3, 0.2]), np.array([1, 1, 0, 0]), 0.0)
         assert fpr == 1.0
+
+    def test_midpoint_fnr(self):
+        # scores: pos=[0.9,0.8], neg=[0.3,0.2]
+        # Descending thresholds: 0.9 → fnr=0.5,fpr=0; 0.8 → fnr=0,fpr=0; 0.3 → fnr=0,fpr=0; 0.2 → fnr=0,fpr=0
+        # Wait — let me think this through correctly.
+        # At thresh=0.9: pos_pred=[T,F,F,F] → fnr=1/2=0.5 >= 0.4 → return fpr=0/2=0.0
+        fpr = fpr_at_fnr_threshold(np.array([0.9, 0.8, 0.3, 0.2]), np.array([1, 1, 0, 0]), 0.4)
+        assert fpr == 0.0
 
     def test_full_fnr_zero_fpr(self):
         fpr = fpr_at_fnr_threshold(np.array([0.9,0.8,0.3,0.2]), np.array([1,1,0,0]), 1.0)

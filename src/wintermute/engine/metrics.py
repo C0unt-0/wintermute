@@ -148,20 +148,25 @@ def fpr_at_fnr_threshold(
 ) -> float:
     """FPR when threshold is set to achieve target_fnr (miss rate).
 
-    Sweeps thresholds from lowest to highest and returns the FPR at the
-    first threshold where FNR >= target_fnr.  If no such threshold exists in
-    the observed score range (e.g. target_fnr=1.0 requires predicting nothing
-    as positive), returns 0.0.
+    Sweeps thresholds in descending order and returns the FPR at the last
+    threshold where FNR >= target_fnr.  Descending sweep means thresholds run
+    from the most conservative (highest, fewest positives flagged) down to the
+    most permissive (lowest, all positives flagged).  Returning the last match
+    gives the lowest threshold — and therefore the highest sensitivity — that
+    still satisfies the target miss rate.  If no threshold achieves
+    FNR >= target_fnr (e.g. target_fnr=1.0 when positives always appear in the
+    score range), returns 0.0.
     """
     import numpy as np
     n_pos = int(np.sum(labels == 1))
     n_neg = int(np.sum(labels == 0))
     if n_pos == 0 or n_neg == 0:
         return 0.0
-    for thresh in np.sort(np.unique(scores)):
+    result = None
+    for thresh in np.sort(np.unique(scores))[::-1]:
         pos_pred = scores >= thresh
         fnr = np.sum((~pos_pred) & (labels == 1)) / n_pos
         fpr = np.sum(pos_pred & (labels == 0)) / n_neg
         if fnr >= target_fnr:
-            return float(fpr)
-    return 0.0
+            result = float(fpr)
+    return result if result is not None else 0.0
