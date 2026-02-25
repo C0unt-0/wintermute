@@ -89,19 +89,41 @@ class WintermuteMalwareDetector(nn.Module):
 
     def __call__(
         self,
-        sequence: mx.array,                        # [B, T]
+        sequence: mx.array | None,                 # [B, T] token IDs  (may be None when token_embeddings provided)
         node_embs: mx.array | None = None,         # [N_total, D] flat pre-embedded node features
         edge_src: mx.array | None = None,          # [E] sparse COO source indices
         edge_dst: mx.array | None = None,          # [E] sparse COO destination indices
         batch_idx: mx.array | None = None,         # [N_total] node-to-graph membership
         n_graphs: int | None = None,               # equals B when graphs are provided
+        token_embeddings: mx.array | None = None,  # [B, T+2, D] pre-computed (e.g. from Mixup)
     ) -> mx.array:
-        B = sequence.shape[0]
+        # Derive batch size from whichever input is available
+        if sequence is not None:
+            B = sequence.shape[0]
+        else:
+            if token_embeddings is None:
+                raise ValueError(
+                    "Either 'sequence' or 'token_embeddings' must be provided."
+                )
+            B = token_embeddings.shape[0]
         D = self.config.dims
 
         # Sequence encoding: prepend [CLS] / append [SEP], then encode
-        x_with_special = self._prepend_cls_append_sep(sequence)  # [B, T+2]
-        hidden = self.malbert_encoder(x_with_special)            # [B, T+2, D]
+        if sequence is not None:
+            x_with_special = self._prepend_cls_append_sep(sequence)   # [B, T+2]
+        else:
+            # Construct a placeholder token-ID tensor filled with a non-PAD
+            # token (cls_id) so that the pad mask inside the encoder does NOT
+            # mask any position.  The actual embedding values are already
+            # pre-computed and will override the internal lookup via token_embs.
+            T_plus2 = token_embeddings.shape[1]
+            x_with_special = mx.full(
+                (B, T_plus2), self.config.cls_id, dtype=mx.int32
+            )
+        hidden = self.malbert_encoder(
+            x_with_special,
+            token_embs=token_embeddings,          # None on normal path
+        )                                          # [B, T+2, D]
         seq_cls = hidden[:, 0, :]                                 # [B, D]
 
         # Graph representation

@@ -7,6 +7,9 @@ Phase B: full fine-tuning of all parameters.
 
 Features:
   - Soft cross-entropy loss with optional Mixup augmentation
+  - Embedding-space Mixup via apply_embedding_mixup (augment.py)
+  - Layer 2 token-sequence augmentation via HeuristicAugmenter (augment.py)
+  - Phase B differential learning rates: encoder at 0.1× base LR
   - Cosine LR decay with linear warmup
   - Gradient clipping
   - Macro F1 checkpoint saving
@@ -61,6 +64,7 @@ class JointTrainer:
         "val_ratio": 0.2,
         "seed": 42,
         "mixup_prob": 0.3,
+        "augment_prob": 0.4,
         "save_path": "malware_detector.safetensors",
         "manifest_path": "malware_detector_manifest.json",
     }
@@ -81,6 +85,8 @@ class JointTrainer:
         self.pretrained_path = pretrained_encoder_path
         self.model = None
         self.optimizer = None
+        # Lazy-initialized HeuristicAugmenter (created once with fixed seed)
+        self._augmenter = None
         self._load_data()
 
     # ------------------------------------------------------------------
@@ -96,6 +102,9 @@ class JointTrainer:
         self.vocab_sha = hashlib.sha256(
             json.dumps(self.vocab, sort_keys=True).encode()
         ).hexdigest()
+
+        # Build reverse vocab once for Layer 2 augmentation decode/re-encode
+        self.id_to_op = {v: k for k, v in self.vocab.items()}
 
         rng = np.random.default_rng(self.cfg.seed)
         idx = rng.permutation(len(y_np))
@@ -115,6 +124,38 @@ class JointTrainer:
             raw = json.loads(gi_path.read_text())
             # Keys stored as strings in JSON; convert to int
             self.graph_index = {int(k): v for k, v in raw.items()}
+
+    # ------------------------------------------------------------------
+    # Layer 2 token-sequence augmentation
+    # ------------------------------------------------------------------
+    def _augment_sequences(self, xb: mx.array) -> mx.array:
+        """Apply heuristic augmentation to a batch of token-ID sequences.
+
+        Decodes each sequence back to opcodes, applies HeuristicAugmenter
+        (NOP insertion, dead-code injection, reordering), then re-encodes
+        to token IDs.  Output is padded / truncated to the original length T.
+        """
+        from wintermute.data.augment import HeuristicAugmenter
+
+        # Lazy-init augmenter with the configured seed so it is created once
+        if self._augmenter is None:
+            self._augmenter = HeuristicAugmenter(seed=int(self.cfg.seed))
+
+        unk_id = self.vocab.get("<UNK>", 1)
+        T = xb.shape[1]
+        result = []
+        for i in range(xb.shape[0]):
+            ids = xb[i].tolist()
+            # Decode token IDs → opcode strings
+            ops = [self.id_to_op.get(tok_id, "<UNK>") for tok_id in ids]
+            # Augment
+            ops_aug = self._augmenter.augment_sequence(ops)
+            # Re-encode
+            ids_aug = [self.vocab.get(op, unk_id) for op in ops_aug]
+            # Pad / truncate to original length T
+            ids_aug = ids_aug[:T] + [0] * max(0, T - len(ids_aug))
+            result.append(ids_aug)
+        return mx.array(result, dtype=xb.dtype)
 
     # ------------------------------------------------------------------
     # Graph collation
@@ -182,8 +223,11 @@ class JointTrainer:
         ----------
         phase : str
             "A" -- encoder gradients are zeroed (frozen approximation).
-            "B" -- all parameters are updated.
+            "B" -- all parameters are updated with differential LRs
+                   (encoder at 0.1× base LR).
         """
+        from wintermute.data.augment import apply_embedding_mixup
+
         # Auto-initialize model and optimizer if called standalone (e.g. in tests)
         if self.model is None:
             self.model = WintermuteMalwareDetector(self.model_config)
@@ -205,9 +249,10 @@ class JointTrainer:
         C = self.model_config.num_classes
         total_loss, n_steps = 0.0, 0
 
-        def soft_xent(
+        def soft_xent_normal(
             model, xb, yb_soft, node_embs, edge_src, edge_dst, batch_idx, n_graphs
         ):
+            """Standard soft cross-entropy (no Mixup)."""
             logits = model(
                 xb,
                 node_embs=node_embs,
@@ -219,7 +264,46 @@ class JointTrainer:
             log_p = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
             return -mx.mean(mx.sum(yb_soft * log_p, axis=-1))
 
-        loss_and_grad = nn.value_and_grad(self.model, soft_xent)
+        def soft_xent_mixup(
+            model,
+            xb_a, xb_b,           # token IDs for the two batches
+            yb_a, yb_b,           # integer labels for the two batches
+            lam,                  # float
+            node_embs, edge_src, edge_dst, batch_idx, n_graphs,
+        ):
+            """Embedding-space Mixup soft cross-entropy."""
+            # Prepend [CLS] / append [SEP] at token-ID level first so that
+            # the embedding dimension (T+2) matches what the encoder expects.
+            xb_a_special = model._prepend_cls_append_sep(xb_a)   # [B, T+2]
+            xb_b_special = model._prepend_cls_append_sep(xb_b)   # [B, T+2]
+
+            # Compute token embeddings for both batches [B, T+2, D]
+            emb_a = model.token_embedding(xb_a_special)
+            emb_b = model.token_embedding(xb_b_special)
+
+            # Mixup in embedding space; get mixed embeddings + soft labels
+            mixed_emb, yb_soft = apply_embedding_mixup(
+                emb_a, emb_b, yb_a, yb_b, num_classes=C, lam=lam
+            )
+
+            # Forward: pass sequence=None and pre-computed token_embeddings.
+            # Use xb_a as the token-ID reference for positional + pad-mask
+            # computation inside the encoder (values will be ignored since
+            # token_embs is provided).
+            logits = model(
+                sequence=None,
+                token_embeddings=mixed_emb,
+                node_embs=node_embs,
+                edge_src=edge_src,
+                edge_dst=edge_dst,
+                batch_idx=batch_idx,
+                n_graphs=n_graphs,
+            )
+            log_p = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
+            return -mx.mean(mx.sum(yb_soft * log_p, axis=-1))
+
+        loss_and_grad_normal = nn.value_and_grad(self.model, soft_xent_normal)
+        loss_and_grad_mixup = nn.value_and_grad(self.model, soft_xent_mixup)
 
         for start in range(0, n, B):
             end = min(start + B, n)
@@ -231,24 +315,36 @@ class JointTrainer:
             orig_idx = [int(self.train_orig_idx[i]) for i in bi]
             ne, es, ed, bidx, ng = self._collate_graphs(orig_idx)
 
-            # Build one-hot soft labels
-            yb_soft = mx.zeros((batch_size_actual, C)).at[
-                mx.arange(batch_size_actual), yb
-            ].add(1.0)
+            # Layer 2: token-sequence augmentation (40% prob, training only)
+            if rng.random() < self.cfg.augment_prob:
+                xb = self._augment_sequences(xb)
 
-            # Optional Mixup augmentation
-            if rng.random() < self.cfg.mixup_prob and batch_size_actual >= 2:
+            # Embedding-space Mixup augmentation
+            use_mixup = (
+                rng.random() < self.cfg.mixup_prob and batch_size_actual >= 2
+            )
+            if use_mixup:
                 lam = float(np.random.beta(0.4, 0.4))
                 perm = rng.permutation(batch_size_actual)
+                xb_b = xb[mx.array(perm)]
                 yb_b = yb[mx.array(perm)]
-                yb_b_soft = mx.zeros((batch_size_actual, C)).at[
-                    mx.arange(batch_size_actual), yb_b
-                ].add(1.0)
-                yb_soft = lam * yb_soft + (1.0 - lam) * yb_b_soft
 
-            loss, grads = loss_and_grad(
-                self.model, xb, yb_soft, ne, es, ed, bidx, ng
-            )
+                loss, grads = loss_and_grad_mixup(
+                    self.model,
+                    xb, xb_b,
+                    yb, yb_b,
+                    lam,
+                    ne, es, ed, bidx, ng,
+                )
+            else:
+                # Build one-hot soft labels for normal path
+                yb_soft = mx.zeros((batch_size_actual, C)).at[
+                    mx.arange(batch_size_actual), yb
+                ].add(1.0)
+
+                loss, grads = loss_and_grad_normal(
+                    self.model, xb, yb_soft, ne, es, ed, bidx, ng
+                )
 
             # Phase A: zero encoder gradients to approximate frozen encoder
             if phase == "A" and "malbert_encoder" in grads:
@@ -259,7 +355,16 @@ class JointTrainer:
                 grads = dict(grads)
                 grads["malbert_encoder"] = zero_enc
 
-            # Gradient clipping via global norm
+            # Phase B: encoder gets 0.1× base LR (differential learning rates)
+            if phase == "B" and "malbert_encoder" in grads:
+                scaled_enc = mlx.utils.tree_map(
+                    lambda g: g * 0.1 if isinstance(g, mx.array) else g,
+                    grads["malbert_encoder"],
+                )
+                grads = dict(grads)
+                grads["malbert_encoder"] = scaled_enc
+
+            # Gradient clipping via global norm (applied AFTER differential LR scaling)
             flat_leaves = [v for _, v in mlx.utils.tree_flatten(grads)
                            if isinstance(v, mx.array)]
             if flat_leaves:
