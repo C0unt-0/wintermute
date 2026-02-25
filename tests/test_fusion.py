@@ -14,13 +14,22 @@ def _cfg(num_classes=2):
     )
 
 
+def _sparse_graph(B: int, D: int):
+    """Returns (node_embs, edge_src, edge_dst, batch_idx) for a tiny 2-node-per-graph batch."""
+    N = B * 2  # 2 nodes per graph
+    node_embs = mx.random.normal((N, D))
+    edge_src = mx.array([2 * i for i in range(B)], dtype=mx.int32)
+    edge_dst = mx.array([2 * i + 1 for i in range(B)], dtype=mx.int32)
+    batch_idx = mx.array([i for i in range(B) for _ in range(2)], dtype=mx.int32)
+    return node_embs, edge_src, edge_dst, batch_idx
+
+
 class TestWintermuteMalwareDetector:
     def test_forward_with_graphs(self):
         model = WintermuteMalwareDetector(_cfg())
         seq = mx.zeros((2, 16), dtype=mx.int32)
-        nf = mx.zeros((2, 3, 64))
-        mask = mx.array([[True, True, True], [True, True, False]])
-        out = model(seq, node_features=nf, node_mask=mask)
+        nf, es, ed, bi = _sparse_graph(2, 64)
+        out = model(seq, node_embs=nf, edge_src=es, edge_dst=ed, batch_idx=bi, n_graphs=2)
         mx.eval(out)
         assert out.shape == (2, 2)
 
@@ -54,6 +63,7 @@ class TestWintermuteMalwareDetector:
             m = json.loads(mp.read_text())
         assert m["arch"] == "WintermuteMalwareDetector"
         assert m["vocab_sha256"] == "abc"
+        assert m["num_fusion_heads"] == 2   # non-default field is preserved
 
     def test_vocab_mismatch_raises(self):
         model = WintermuteMalwareDetector(_cfg())
@@ -67,3 +77,18 @@ class TestWintermuteMalwareDetector:
                 assert False, "Should raise"
             except ValueError as e:
                 assert "vocab" in str(e).lower()
+
+    def test_gat_is_executed(self):
+        """Verify GAT weights actually receive gradients when graph inputs are provided."""
+        model = WintermuteMalwareDetector(_cfg())
+        seq = mx.zeros((2, 16), dtype=mx.int32)
+        nf, es, ed, bi = _sparse_graph(2, 64)
+
+        def loss_fn(m, seq, nf, es, ed, bi):
+            return mx.mean(m(seq, node_embs=nf, edge_src=es, edge_dst=ed, batch_idx=bi, n_graphs=2))
+
+        _, grads = nn.value_and_grad(model, loss_fn)(model, seq, nf, es, ed, bi)
+        mx.eval(grads)
+        # If GAT were bypassed, gat_encoder weights would have zero gradients
+        gat_grad = grads["gat_encoder"]["layers"][0]["W"]["weight"]
+        assert not mx.all(gat_grad == 0).item(), "GAT encoder received no gradients — it was not called"

@@ -65,8 +65,8 @@ class WintermuteMalwareDetector(nn.Module):
             dropout=config.dropout,
         )
 
-        # Learnable NO_GRAPH fallback: [1, 1, D] broadcast to [B, 1, D]
-        self.no_graph_embedding = mx.zeros((1, 1, D))
+        # nn.Embedding ensures the fallback is a tracked learnable parameter
+        self.no_graph_embedding = nn.Embedding(1, D)
 
         # Cross-attention: seq [CLS] queries over graph node features
         self.cross_attn = nn.MultiHeadAttention(D, config.num_fusion_heads, bias=True)
@@ -89,9 +89,12 @@ class WintermuteMalwareDetector(nn.Module):
 
     def __call__(
         self,
-        sequence: mx.array,                      # [B, T]
-        node_features: mx.array | None = None,   # [B, max_N, D] padded
-        node_mask: mx.array | None = None,        # [B, max_N] bool
+        sequence: mx.array,                        # [B, T]
+        node_embs: mx.array | None = None,         # [N_total, D] flat pre-embedded node features
+        edge_src: mx.array | None = None,          # [E] sparse COO source indices
+        edge_dst: mx.array | None = None,          # [E] sparse COO destination indices
+        batch_idx: mx.array | None = None,         # [N_total] node-to-graph membership
+        n_graphs: int | None = None,               # equals B when graphs are provided
     ) -> mx.array:
         B = sequence.shape[0]
         D = self.config.dims
@@ -101,33 +104,30 @@ class WintermuteMalwareDetector(nn.Module):
         hidden = self.malbert_encoder(x_with_special)            # [B, T+2, D]
         seq_cls = hidden[:, 0, :]                                 # [B, D]
 
-        # Graph representation via cross-attention
-        if node_features is None:
-            # All NO_GRAPH — broadcast fallback embedding
-            graph_kv = mx.broadcast_to(self.no_graph_embedding, (B, 1, D))
-            attn_mask = None
+        # Graph representation
+        if node_embs is None or edge_src is None:
+            # NO_GRAPH fallback: learnable single-token representation per sample
+            graph_repr = mx.broadcast_to(
+                self.no_graph_embedding.weight,    # [1, D]
+                (B, D)
+            )
         else:
-            graph_kv = node_features             # [B, max_N, D]
-            if node_mask is not None:
-                dtype = self.token_embedding.weight.dtype
-                attn_mask = mx.where(
-                    node_mask,
-                    mx.zeros(node_mask.shape, dtype=dtype),
-                    mx.full(node_mask.shape, -1e9, dtype=dtype),
-                )[:, None, None, :]
-            else:
-                attn_mask = None
+            # Run GAT: sparse [N_total, D] -> per-graph pooled [B, D]
+            graph_repr = self.gat_encoder(
+                node_embs, edge_src, edge_dst, batch_idx, n_graphs or B
+            )
 
-        # Cross-attention: query [B, 1, D], key/value [B, max_N, D]
-        query = seq_cls[:, None, :]
-        graph_repr = self.cross_attn(query, graph_kv, graph_kv, mask=attn_mask)
-        graph_repr = self.fusion_norm(graph_repr[:, 0, :])   # [B, D]
+        # Cross-attention fusion: seq_cls queries over graph_repr
+        query = seq_cls[:, None, :]                # [B, 1, D]
+        kv = graph_repr[:, None, :]               # [B, 1, D]
+        fused_graph = self.cross_attn(query, kv, kv)
+        fused_graph = self.fusion_norm(fused_graph[:, 0, :])   # [B, D]
 
-        # Fuse + classify
+        # Final projection + classify
         fused = nn.gelu(self.fusion_proj(
-            mx.concatenate([seq_cls, graph_repr], axis=-1)   # [B, 2D]
+            mx.concatenate([seq_cls, fused_graph], axis=-1)    # [B, 2D]
         ))
-        return self.classifier(fused)                        # [B, C]
+        return self.classifier(fused)                          # [B, C]
 
     def save_manifest(self, path: str, vocab_sha256: str = "",
                       best_val_macro_f1: float = 0.0,
@@ -137,7 +137,13 @@ class WintermuteMalwareDetector(nn.Module):
             "arch": "WintermuteMalwareDetector", "version": self.VERSION,
             "vocab_size": c.vocab_size, "num_classes": c.num_classes,
             "dims": c.dims, "num_heads": c.num_heads, "num_layers": c.num_layers,
-            "gat_layers": c.gat_layers, "vocab_sha256": vocab_sha256,
+            "mlp_dims": c.mlp_dims, "dropout": c.dropout,
+            "max_seq_length": c.max_seq_length,
+            "gat_layers": c.gat_layers, "gat_heads": c.gat_heads,
+            "num_fusion_heads": c.num_fusion_heads,
+            "pad_id": c.pad_id, "cls_id": c.cls_id,
+            "sep_id": c.sep_id, "mask_id": c.mask_id,
+            "vocab_sha256": vocab_sha256,
             "best_val_macro_f1": best_val_macro_f1,
             "trained_with_pretrained_encoder": trained_with_pretrained_encoder,
         }, indent=2))
@@ -153,8 +159,13 @@ class WintermuteMalwareDetector(nn.Module):
             )
         cfg = DetectorConfig(
             vocab_size=m["vocab_size"], num_classes=m["num_classes"],
-            dims=m["dims"], num_heads=m["num_heads"],
-            num_layers=m["num_layers"], gat_layers=m["gat_layers"],
+            dims=m["dims"], num_heads=m["num_heads"], num_layers=m["num_layers"],
+            mlp_dims=m.get("mlp_dims", 1024), dropout=m.get("dropout", 0.1),
+            max_seq_length=m.get("max_seq_length", 2048),
+            gat_layers=m["gat_layers"], gat_heads=m.get("gat_heads", 4),
+            num_fusion_heads=m.get("num_fusion_heads", 4),
+            pad_id=m.get("pad_id", 0), cls_id=m.get("cls_id", 2),
+            sep_id=m.get("sep_id", 3), mask_id=m.get("mask_id", 4),
         )
         model = cls(cfg)
         model.load_weights(weights_path)
