@@ -74,7 +74,7 @@ class HeadlessDisassembler:
             n = len(node_id_map)
             if n > self.max_nodes:
                 logger.warning("CFG has %d nodes > limit %d for %s", n, self.max_nodes, self.binary_path)
-                return DisassemblyResult(sequence=sequence, extraction_failed=True, n_nodes=n)
+                return DisassemblyResult(extraction_failed=True)
 
             while len(node_opcodes) < n:
                 node_opcodes.append([])
