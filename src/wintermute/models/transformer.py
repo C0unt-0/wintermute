@@ -126,14 +126,15 @@ class MalBERTEncoder(nn.Module):
     - Post-encoder layer normalisation
     """
 
-    def __init__(self, config: MalBERTConfig):
+    def __init__(self, config: MalBERTConfig, token_embedding: nn.Embedding | None = None):
         super().__init__()
         self.config = config
 
         # +2 for [CLS] and [SEP] tokens
         effective_length = config.max_seq_length + 2
 
-        self.token_embedding = nn.Embedding(config.vocab_size, config.dims)
+        # Accept injected embedding (for sharing with GAT in WintermuteMalwareDetector)
+        self.token_embedding = token_embedding or nn.Embedding(config.vocab_size, config.dims)
         self.position_embedding = nn.Embedding(effective_length, config.dims)
         self.embed_dropout = nn.Dropout(config.dropout)
 
