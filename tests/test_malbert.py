@@ -236,3 +236,42 @@ class TestHeuristicAugmenter:
             x, y, stoi, augment_ratio=0.5, max_seq_length=8,
         )
         assert len(y_aug) > len(y)
+
+
+from wintermute.data.augment import HeuristicAugmenter, apply_embedding_mixup
+import mlx.core as mx
+
+
+class TestInstructionSubstitution:
+    def test_preserves_length(self):
+        aug = HeuristicAugmenter(seed=42)
+        ops = ["xor", "mov", "push", "ret"] * 10
+        result = aug.augment_sequence(ops, techniques=["substitute"])
+        assert len(result) == len(ops)
+
+    def test_substitution_applied(self):
+        aug = HeuristicAugmenter(seed=0)
+        ops = ["xor"] * 100
+        result = aug.augment_sequence(ops, techniques=["substitute"])
+        # At least some should have been substituted to "mov"
+        assert "mov" in result
+
+
+class TestEmbeddingMixup:
+    def test_shape_preserved(self):
+        a = mx.random.normal((4, 16, 32))
+        b = mx.random.normal((4, 16, 32))
+        la, lb = mx.array([0, 1, 0, 1]), mx.array([1, 0, 1, 0])
+        mixed_emb, mixed_labels = apply_embedding_mixup(a, b, la, lb, num_classes=2, lam=0.6)
+        mx.eval(mixed_emb, mixed_labels)
+        assert mixed_emb.shape == (4, 16, 32)
+        assert mixed_labels.shape == (4, 2)
+
+    def test_soft_labels_sum_to_one(self):
+        a = mx.zeros((3, 8, 16))
+        b = mx.ones((3, 8, 16))
+        la, lb = mx.array([0, 1, 0]), mx.array([1, 0, 1])
+        _, soft = apply_embedding_mixup(a, b, la, lb, num_classes=2, lam=0.7)
+        mx.eval(soft)
+        sums = mx.sum(soft, axis=1)
+        assert mx.allclose(sums, mx.ones((3,))).item()

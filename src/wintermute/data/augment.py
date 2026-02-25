@@ -255,6 +255,14 @@ _DEAD_CODE_PATTERNS = [
     ["add", "sub"],
 ]
 
+# Opcode substitution map — semantically equivalent replacements
+_SUBSTITUTION_MAP = {
+    "xor": "mov",
+    "sub": "add",
+    "inc": "add",
+    "dec": "sub",
+}
+
 
 class HeuristicAugmenter:
     """
@@ -307,6 +315,9 @@ class HeuristicAugmenter:
 
         if "reorder" in techniques:
             result = self._reorder_independent(result)
+
+        if "substitute" in techniques:
+            result = self._substitute(result)
 
         return result
 
@@ -388,3 +399,43 @@ class HeuristicAugmenter:
                 if self.rng.random() < 0.3:  # 30% swap probability
                     result[i], result[i + 1] = result[i + 1], result[i]
         return result
+
+    def _substitute(self, ops: list[str]) -> list[str]:
+        """Replace opcodes with semantically equivalent alternatives."""
+        result = list(ops)
+        for i, op in enumerate(result):
+            if op in _SUBSTITUTION_MAP and self.rng.random() < 0.3:
+                result[i] = _SUBSTITUTION_MAP[op]
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Embedding-space Mixup
+# ---------------------------------------------------------------------------
+
+def apply_embedding_mixup(
+    emb_a: "mx.array",
+    emb_b: "mx.array",
+    labels_a: "mx.array",
+    labels_b: "mx.array",
+    num_classes: int,
+    lam: float,
+) -> "tuple[mx.array, mx.array]":
+    """
+    Mixup in embedding space. Returns (mixed_embeddings, soft_labels).
+    mixed_embeddings shape: [B, T, D] — same as inputs.
+    soft_labels shape: [B, num_classes] — sum to 1.0 per sample.
+    lam=1.0 returns emb_a/labels_a unchanged; lam=0.0 returns emb_b/labels_b.
+    """
+    import mlx.core as _mx
+
+    mixed_emb = lam * emb_a + (1.0 - lam) * emb_b
+
+    B = labels_a.shape[0]
+
+    def onehot(labels):
+        oh = _mx.zeros((B, num_classes))
+        return oh.at[_mx.arange(B), labels].add(1.0)
+
+    soft_labels = lam * onehot(labels_a) + (1.0 - lam) * onehot(labels_b)
+    return mixed_emb, soft_labels
