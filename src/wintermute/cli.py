@@ -94,7 +94,7 @@ def scan(
         typer.echo("  No opcodes extracted.")
         return
 
-    max_seq = 2048
+    max_seq = detector.config.max_seq_length
     unk, pad = stoi.get("<UNK>", 1), stoi.get("<PAD>", 0)
     ids = [stoi.get(op, unk) for op in opcodes[:max_seq]] + [pad] * (max_seq - min(len(opcodes), max_seq))
     x = mx.array([ids])
