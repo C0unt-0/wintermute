@@ -257,7 +257,6 @@ _DEAD_CODE_PATTERNS = [
 
 # Opcode substitution map — semantically equivalent replacements
 _SUBSTITUTION_MAP = {
-    "xor": "mov",
     "sub": "add",
     "inc": "add",
     "dec": "sub",
@@ -431,11 +430,10 @@ def apply_embedding_mixup(
 
     mixed_emb = lam * emb_a + (1.0 - lam) * emb_b
 
-    B = labels_a.shape[0]
-
     def onehot(labels):
-        oh = _mx.zeros((B, num_classes))
-        return oh.at[_mx.arange(B), labels].add(1.0)
+        n = labels.shape[0]
+        oh = _mx.zeros((n, num_classes))
+        return oh.at[_mx.arange(n), labels].add(1.0)
 
     soft_labels = lam * onehot(labels_a) + (1.0 - lam) * onehot(labels_b)
     return mixed_emb, soft_labels

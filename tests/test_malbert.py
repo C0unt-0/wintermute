@@ -22,7 +22,7 @@ from wintermute.models.transformer import (
     MalBERTConfig,
     MalBERTForMLM,
 )
-from wintermute.data.augment import HeuristicAugmenter, SMOTEAugmenter
+from wintermute.data.augment import HeuristicAugmenter, SMOTEAugmenter, apply_embedding_mixup
 from wintermute.engine.pretrain import apply_mlm_masking
 
 
@@ -238,10 +238,6 @@ class TestHeuristicAugmenter:
         assert len(y_aug) > len(y)
 
 
-from wintermute.data.augment import HeuristicAugmenter, apply_embedding_mixup
-import mlx.core as mx
-
-
 class TestInstructionSubstitution:
     def test_preserves_length(self):
         aug = HeuristicAugmenter(seed=42)
@@ -251,10 +247,10 @@ class TestInstructionSubstitution:
 
     def test_substitution_applied(self):
         aug = HeuristicAugmenter(seed=0)
-        ops = ["xor"] * 100
+        ops = ["inc"] * 100
         result = aug.augment_sequence(ops, techniques=["substitute"])
-        # At least some should have been substituted to "mov"
-        assert "mov" in result
+        # inc -> add per _SUBSTITUTION_MAP
+        assert "add" in result
 
 
 class TestEmbeddingMixup:
