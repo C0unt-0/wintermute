@@ -172,20 +172,32 @@ class MalBERTEncoder(nn.Module):
         mask = mask[:, None, None, :]
         return mask
 
-    def __call__(self, x: mx.array) -> mx.array:
+    def __call__(
+        self,
+        x: mx.array,
+        token_embs: "mx.array | None" = None,
+    ) -> mx.array:
         """
         Forward pass through the encoder.
 
         Args:
-            x: [B, T] integer token IDs (with [CLS] and [SEP] already prepended/appended)
+            x: [B, T] integer token IDs (with [CLS] and [SEP] already
+               prepended/appended).  Used for positional offsets and pad-mask.
+            token_embs: Optional pre-computed token embeddings [B, T, D].
+               When provided (e.g. from embedding-space Mixup), the internal
+               ``self.token_embedding`` lookup is skipped.  The positional
+               embeddings and pad-mask are still derived from ``x``.
 
         Returns:
             h: [B, T, D] hidden states
         """
         B, T = x.shape
 
-        # Embeddings
-        tok_emb = self.token_embedding(x)                  # [B, T, D]
+        # Embeddings — use pre-computed ones when supplied (Mixup path)
+        if token_embs is None:
+            tok_emb = self.token_embedding(x)              # [B, T, D]
+        else:
+            tok_emb = token_embs                           # [B, T, D] (already mixed)
         positions = mx.arange(T)                           # [T]
         pos_emb = self.position_embedding(positions)       # [T, D]
         h = self.embed_dropout(tok_emb + pos_emb)
