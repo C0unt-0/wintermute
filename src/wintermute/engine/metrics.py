@@ -105,17 +105,22 @@ def confusion_matrix(
 
 
 def compute_macro_f1(model, x, y, batch_size: int, num_classes: int) -> float:
-    """Macro-averaged F1 over all classes. Uses model in inference mode."""
+    """Macro-averaged F1 over all classes. Disables dropout for deterministic inference."""
     import numpy as np
     from wintermute.engine.trainer import batch_iterate
 
-    preds, labels = [], []
-    for xb, yb in batch_iterate(x, y, batch_size, shuffle=False):
-        p = mx.argmax(model(xb), axis=1)
-        # Materialise the lazy MLX array before converting to Python list
-        mx.synchronize()
-        preds.extend(p.tolist())
-        labels.extend(yb.tolist())
+    model.eval()
+    try:
+        preds, labels = [], []
+        for xb, yb in batch_iterate(x, y, batch_size, shuffle=False):
+            p = mx.argmax(model(xb), axis=1)
+            # Materialise the lazy MLX array before converting to Python list
+            mx.eval(p)
+            preds.extend(p.tolist())
+            labels.extend(yb.tolist())
+    finally:
+        model.train()
+
     p_arr, l_arr = np.array(preds), np.array(labels)
     f1s = []
     for c in range(num_classes):
@@ -131,7 +136,7 @@ def compute_macro_f1(model, x, y, batch_size: int, num_classes: int) -> float:
 def compute_auc_roc(scores: "np.ndarray", labels: "np.ndarray") -> float:
     """Binary AUC-ROC via trapezoidal rule."""
     import numpy as np
-    idx = np.argsort(-scores)
+    idx = np.argsort(-scores, kind="stable")
     ls = labels[idx]
     n_pos, n_neg = np.sum(labels == 1), np.sum(labels == 0)
     if n_pos == 0 or n_neg == 0:
