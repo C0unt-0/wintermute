@@ -87,6 +87,8 @@ class JointTrainer:
         self.optimizer = None
         # Lazy-initialized HeuristicAugmenter (created once with fixed seed)
         self._augmenter = None
+        # Epoch counter used to seed per-epoch RNG deterministically
+        self._epoch_count = 0
         self._load_data()
 
     # ------------------------------------------------------------------
@@ -146,8 +148,12 @@ class JointTrainer:
         result = []
         for i in range(xb.shape[0]):
             ids = xb[i].tolist()
-            # Decode token IDs → opcode strings
-            ops = [self.id_to_op.get(tok_id, "<UNK>") for tok_id in ids]
+            # Strip PAD tokens before decoding so the augmenter works on real
+            # opcodes only.  Without this, PAD tokens end up in the middle of
+            # the augmented sequence and push real opcodes past the truncation
+            # boundary.
+            pad_id_val = self.vocab.get("<PAD>", 0)
+            ops = [self.id_to_op.get(tok_id, "<UNK>") for tok_id in ids if tok_id != pad_id_val]
             # Augment
             ops_aug = self._augmenter.augment_sequence(ops)
             # Re-encode
@@ -243,7 +249,8 @@ class JointTrainer:
 
         x, y = self.x_train, self.y_train
         n = x.shape[0]
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(self.cfg.seed + self._epoch_count)
+        self._epoch_count += 1
         indices = rng.permutation(n)
         B = self.cfg.batch_size
         C = self.model_config.num_classes
@@ -324,7 +331,7 @@ class JointTrainer:
                 rng.random() < self.cfg.mixup_prob and batch_size_actual >= 2
             )
             if use_mixup:
-                lam = float(np.random.beta(0.4, 0.4))
+                lam = float(rng.beta(0.4, 0.4))
                 perm = rng.permutation(batch_size_actual)
                 xb_b = xb[mx.array(perm)]
                 yb_b = yb[mx.array(perm)]
