@@ -173,6 +173,7 @@ def evaluate(
     typer.echo("Loading model ...")
     detector = WintermuteMalwareDetector.load(str(model), str(manifest), vocab_sha256=vocab_sha)
     WintermuteMalwareDetector.cast_to_bf16(detector)
+    num_classes = detector.config.num_classes
 
     typer.echo("Loading dataset ...")
     x = mx.array(np.load(dp / "x_data.npy"))
@@ -180,44 +181,42 @@ def evaluate(
 
     typer.echo("Computing metrics ...")
     batch_size = 8
-    macro_f1 = compute_macro_f1(detector, x, y, batch_size, detector.config.num_classes)
+    macro_f1 = compute_macro_f1(detector, x, y, batch_size, num_classes)
 
-    # Collect scores for AUC/FPR metrics
-    detector.eval()
-    all_scores, all_labels = [], []
-    n = x.shape[0]
-    for start in range(0, n, batch_size):
-        xb = x[start:start + batch_size]
-        yb = y[start:start + batch_size]
-        logits = detector(xb)
-        probs = mx.softmax(logits, axis=1)
-        mx.eval(probs)
-        scores = [probs[i, 1].item() for i in range(xb.shape[0])]
-        all_scores.extend(scores)
-        all_labels.extend(yb.tolist())
-    detector.train()
-
-    import numpy as _np
-    scores_np = _np.array(all_scores)
-    labels_np = _np.array(all_labels)
-
-    auc = compute_auc_roc(scores_np, labels_np)
-    fpr = fpr_at_fnr_threshold(scores_np, labels_np, target_fnr=0.01)
-
-    metrics = {
+    metrics: dict = {
         "macro_f1": macro_f1,
-        "auc_roc": auc,
-        "fpr_at_1pct_fnr": fpr,
         "num_samples": int(x.shape[0]),
-        "num_classes": detector.config.num_classes,
+        "num_classes": num_classes,
     }
+
+    # AUC-ROC and FPR@1%FNR are binary-only metrics
+    if num_classes == 2:
+        detector.eval()
+        all_scores, all_labels = [], []
+        n = x.shape[0]
+        for start in range(0, n, batch_size):
+            xb = x[start:start + batch_size]
+            yb = y[start:start + batch_size]
+            logits = detector(xb)
+            probs = mx.softmax(logits, axis=1)
+            mx.eval(probs)
+            all_scores.extend(probs[i, 1].item() for i in range(xb.shape[0]))
+            all_labels.extend(yb.tolist())
+        detector.train()
+
+        scores_np = np.array(all_scores)
+        labels_np = np.array(all_labels)
+        metrics["auc_roc"] = compute_auc_roc(scores_np, labels_np)
+        metrics["fpr_at_1pct_fnr"] = fpr_at_fnr_threshold(scores_np, labels_np, target_fnr=0.01)
+
     with open(output, "w") as f:
         _json.dump(metrics, f, indent=2)
 
     typer.echo(f"\n{'='*50}")
     typer.echo(f"  Macro F1:        {macro_f1:.4f}")
-    typer.echo(f"  AUC-ROC:         {auc:.4f}")
-    typer.echo(f"  FPR@1%FNR:       {fpr:.4f}")
+    if num_classes == 2:
+        typer.echo(f"  AUC-ROC:         {metrics['auc_roc']:.4f}")
+        typer.echo(f"  FPR@1%FNR:       {metrics['fpr_at_1pct_fnr']:.4f}")
     typer.echo(f"  Samples:         {x.shape[0]}")
     typer.echo(f"\n  Metrics saved to {output}")
     typer.echo(f"{'='*50}\n")

@@ -3,13 +3,11 @@ stages:
   disassemble:
     cmd: wintermute data build --data-dir data
     deps:
-      - src/wintermute/data/disassembler.py
       - src/wintermute/data/tokenizer.py
     outs:
       - data/processed/x_data.npy
       - data/processed/y_data.npy
       - data/processed/vocab.json
-      - data/processed/graphs/
     params:
       - configs/data_config.yaml:
           - max_seq_length
@@ -51,6 +49,7 @@ stages:
       - data/processed/x_data.npy
       - data/processed/y_data.npy
       - malware_detector.safetensors
+      - malware_detector_manifest.json
       - src/wintermute/engine/metrics.py
     metrics:
       - eval_metrics.json:
