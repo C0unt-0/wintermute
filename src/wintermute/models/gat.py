@@ -45,16 +45,18 @@ class GATLayer(nn.Module):
         attn_d = self.attn_dst(h_dst.reshape(E * H, D)).reshape(E, H)
         e = nn.leaky_relu(attn_s + attn_d, negative_slope=0.2)
 
-        # Grouped softmax with global max stability + clamp guard for bfloat16.
-        # Global max subtraction is mathematically equivalent to per-node max (shift invariance);
-        # clamp prevents bfloat16 underflow when edge scores diverge widely.
-        e_stable = mx.clip(e - mx.max(e, axis=0, keepdims=True), -20.0, 20.0)
-        exp_e = mx.exp(e_stable)
+        # Grouped softmax. Global max subtraction is shift-invariant within each
+        # destination group (numerator and denominator shift by the same constant),
+        # so attention weights are identical to per-node max. MLX has no scatter-max,
+        # so global max is the correct pragmatic choice here.
+        exp_e = mx.exp(e - mx.max(e, axis=0, keepdims=True))
         sum_exp = mx.zeros((N, H)).at[dst_idx].add(exp_e)
         alpha = self.dropout(exp_e / (sum_exp[dst_idx] + 1e-16))
 
         output = mx.zeros((N, H, D)).at[dst_idx].add(alpha[:, :, None] * h_src)
-        return nn.elu(output.reshape(N, self.out_dims))
+        # Residual: nodes with no incoming edges preserve their projected features
+        # instead of being zeroed out by the scatter initialisation.
+        return nn.elu(output.reshape(N, self.out_dims) + h_proj.reshape(N, self.out_dims))
 
 
 class GATEncoder(nn.Module):

@@ -68,3 +68,17 @@ class TestGATEncoder:
         out = enc(h, src, dst, batch_idx, n_graphs=1)
         mx.eval(out)
         assert out.shape == (1, 8)
+
+    def test_encoder_gradients_flow(self):
+        enc = GATEncoder(in_dims=16, hidden_dims=16, num_layers=2, num_heads=2)
+        h = mx.random.normal((4, 16))
+        src, dst = mx.array([0, 1, 2, 3]), mx.array([1, 2, 3, 0])
+        batch_idx = mx.zeros((4,), dtype=mx.int32)
+
+        def loss_fn(model, h, src, dst, batch_idx):
+            return mx.mean(model(h, src, dst, batch_idx, n_graphs=1))
+
+        _, grads = nn.value_and_grad(enc, loss_fn)(enc, h, src, dst, batch_idx)
+        mx.eval(grads)
+        w_grad = grads["layers"][0]["W"]["weight"]
+        assert not mx.all(w_grad == 0).item()
