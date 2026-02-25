@@ -45,8 +45,11 @@ class GATLayer(nn.Module):
         attn_d = self.attn_dst(h_dst.reshape(E * H, D)).reshape(E, H)
         e = nn.leaky_relu(attn_s + attn_d, negative_slope=0.2)
 
-        # Scatter grouped softmax
-        exp_e = mx.exp(e - mx.max(e, axis=0, keepdims=True))
+        # Grouped softmax with global max stability + clamp guard for bfloat16.
+        # Global max subtraction is mathematically equivalent to per-node max (shift invariance);
+        # clamp prevents bfloat16 underflow when edge scores diverge widely.
+        e_stable = mx.clip(e - mx.max(e, axis=0, keepdims=True), -20.0, 20.0)
+        exp_e = mx.exp(e_stable)
         sum_exp = mx.zeros((N, H)).at[dst_idx].add(exp_e)
         alpha = self.dropout(exp_e / (sum_exp[dst_idx] + 1e-16))
 
