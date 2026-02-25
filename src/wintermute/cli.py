@@ -55,146 +55,62 @@ DEFAULT_FAMILIES = {
 # ═══════════════════════════════════════════════════════════════════════════
 @app.command()
 def scan(
-    target: str = typer.Argument(..., help="Path to file to scan (.exe, .dll, .asm)"),
-    model: str = typer.Option(
-        "malware_model.safetensors", "--model", "-m",
-        help="Path to trained model weights (.safetensors).",
-    ),
-    vocab: str = typer.Option(
-        "data/processed/vocab.json", "--vocab", "-v",
-        help="Path to vocab.json.",
-    ),
-    families_path: str = typer.Option(
-        "data/processed/families.json", "--families", "-f",
-        help="Path to families.json (class index → name mapping).",
-    ),
-    family: bool = typer.Option(
-        False, "--family", help="Use multi-class family detection mode.",
-    ),
-    num_classes: int = typer.Option(
-        None, "--num-classes", "-c",
-        help="Number of output classes (auto-detected from families.json).",
-    ),
-    max_seq_length: int = typer.Option(
-        2048, "--max-seq-length",
-        help="Sequence length (must match training).",
-    ),
+    target: str = typer.Argument(...),
+    model: str = typer.Option("malware_detector.safetensors", "--model", "-m"),
+    manifest: str = typer.Option("malware_detector_manifest.json", "--manifest"),
+    vocab: str = typer.Option("data/processed/vocab.json", "--vocab", "-v"),
+    family: bool = typer.Option(False, "--family"),
 ) -> None:
-    """Scan a PE file or .asm file for malware."""
+    """Scan a binary using WintermuteMalwareDetector."""
+    import hashlib
+    import json as _json
     import mlx.core as mx
+    from wintermute.data.disassembler import HeadlessDisassembler
+    from wintermute.data.tokenizer import read_asm_file
+    from wintermute.models.fusion import WintermuteMalwareDetector
 
-    from wintermute.data.tokenizer import (
-        extract_opcodes_asm,
-        extract_opcodes_pe,
-        read_asm_file,
-    )
-    from wintermute.models.sequence import MalwareClassifier
-
-    # Validate inputs
     target_path = Path(target)
     if not target_path.exists():
-        typer.echo(f"[ERROR] File not found: {target}", err=True)
-        raise typer.Exit(code=1)
+        typer.echo(f"[ERROR] Not found: {target}", err=True)
+        raise typer.Exit(1)
 
-    model_path = Path(model)
-    if not model_path.exists():
-        typer.echo(f"[ERROR] Model weights not found: {model}", err=True)
-        typer.echo("        Train first: wintermute train", err=True)
-        raise typer.Exit(code=1)
+    with open(vocab) as f:
+        stoi = _json.load(f)
+    vocab_sha = hashlib.sha256(_json.dumps(stoi, sort_keys=True).encode()).hexdigest()
 
-    vocab_path = Path(vocab)
-    if not vocab_path.exists():
-        typer.echo(f"[ERROR] Vocabulary not found: {vocab}", err=True)
-        raise typer.Exit(code=1)
-
-    # Load vocabulary
-    with open(vocab_path) as f:
-        stoi = json.load(f)
-    vocab_size = len(stoi)
-
-    # Determine mode
-    if family:
-        fpath = Path(families_path)
-        families = (
-            json.load(open(fpath)) if fpath.exists() else DEFAULT_FAMILIES
-        )
-        n_classes = num_classes or len(families)
-    else:
-        families = {"0": "Safe", "1": "Malicious"}
-        n_classes = num_classes or 2
-
-    # Load model
-    classifier = MalwareClassifier(
-        vocab_size=vocab_size,
-        max_seq_length=max_seq_length,
-        num_classes=n_classes,
-    )
-    classifier.load_weights(str(model_path))
-    MalwareClassifier.cast_to_bf16(classifier)
-    classifier.eval()
-
-    typer.echo(f"  Model loaded: {n_classes} classes, vocab size {vocab_size}")
-
-    # Extract opcodes
-    typer.echo(f"\n{'═' * 60}")
-    typer.echo(f"  Scanning: {target}")
-    typer.echo(f"{'═' * 60}")
+    typer.echo(f"Loading {model} ...")
+    detector = WintermuteMalwareDetector.load(model, manifest, vocab_sha256=vocab_sha)
+    WintermuteMalwareDetector.cast_to_bf16(detector)
+    detector.eval()
 
     if target_path.suffix.lower() == ".asm":
         opcodes = read_asm_file(str(target_path))
     else:
-        opcodes = extract_opcodes_pe(str(target_path))
+        typer.echo("Disassembling ...")
+        result = HeadlessDisassembler(str(target_path)).extract()
+        opcodes = result.sequence
 
     if not opcodes:
-        typer.echo("  ⚠️  Could not extract opcodes from this file.")
+        typer.echo("  No opcodes extracted.")
         return
 
-    typer.echo(f"  Disassembled {len(opcodes)} instructions")
-
-    # Tokenise
-    unk_id = stoi.get("<UNK>", 1)
-    pad_id = stoi.get("<PAD>", 0)
-    ids = [stoi.get(op, unk_id) for op in opcodes[:max_seq_length]]
-    ids += [pad_id] * (max_seq_length - len(ids))
+    max_seq = 2048
+    unk, pad = stoi.get("<UNK>", 1), stoi.get("<PAD>", 0)
+    ids = [stoi.get(op, unk) for op in opcodes[:max_seq]] + [pad] * (max_seq - min(len(opcodes), max_seq))
     x = mx.array([ids])
 
-    # Inference
-    logits = classifier(x)
+    logits = detector(x)
     probs = mx.softmax(logits, axis=1)
     mx.eval(probs)
 
-    prediction = int(mx.argmax(probs, axis=1).item())
-    top_prob = probs[0, prediction].item() * 100
-    family_name = families.get(str(prediction), f"Class {prediction}")
+    pred = int(mx.argmax(probs, axis=1).item())
+    conf = probs[0, pred].item() * 100
+    label = ("Safe" if pred == 0 else "Malicious") if not family else f"Class {pred}"
 
-    # Verdict
-    if family:
-        typer.echo(f"\n  🎯  Predicted Family: {family_name}")
-        typer.echo(f"      Confidence:      {top_prob:.1f}%\n")
-
-        typer.echo(f"  {'Family':<20} {'Probability':>12}")
-        typer.echo(f"  {'─' * 34}")
-
-        prob_list = [(i, probs[0, i].item()) for i in range(n_classes)]
-        prob_list.sort(key=lambda p: p[1], reverse=True)
-        for cls_idx, prob in prob_list:
-            name = families.get(str(cls_idx), f"Class {cls_idx}")
-            bar = "█" * int(prob * 30)
-            marker = " ◄" if cls_idx == prediction else ""
-            typer.echo(f"  {name:<20} {prob * 100:>6.2f}%  {bar}{marker}")
-    else:
-        safe_prob = probs[0, 0].item() * 100
-        mal_prob = probs[0, 1].item() * 100
-        if prediction == 0:
-            typer.echo(f"\n  ✅  [SAFE]       Probability: {safe_prob:.1f}%")
-        else:
-            typer.echo(f"\n  🚨  [MALICIOUS]  Probability: {mal_prob:.1f}%")
-        typer.echo()
-        typer.echo(f"  Details:")
-        typer.echo(f"    Safe probability:      {safe_prob:6.2f}%")
-        typer.echo(f"    Malicious probability: {mal_prob:6.2f}%")
-
-    typer.echo(f"\n{'═' * 60}\n")
+    typer.echo(f"\n{'='*50}")
+    icon = "✅" if pred == 0 else "🚨"
+    typer.echo(f"  {icon}  {label.upper():<12}  Confidence: {conf:.1f}%")
+    typer.echo(f"{'='*50}\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -202,59 +118,31 @@ def scan(
 # ═══════════════════════════════════════════════════════════════════════════
 @app.command()
 def train(
-    data_dir: str = typer.Option(
-        "data/processed", "--data-dir", "-d",
-        help="Directory containing x_data.npy, y_data.npy, vocab.json.",
-    ),
-    config: str = typer.Option(
-        None, "--config",
-        help="Path to model_config.yaml (optional).",
-    ),
-    epochs: int = typer.Option(None, "--epochs", "-e", help="Override epochs."),
-    batch_size: int = typer.Option(None, "--batch-size", "-b", help="Override batch size."),
-    lr: float = typer.Option(None, "--lr", help="Override learning rate."),
-    num_classes: int = typer.Option(None, "--num-classes", "-c", help="Override num classes."),
-    save_path: str = typer.Option(None, "--save-path", "-o", help="Override save path."),
-    track: bool = typer.Option(
-        False, "--track",
-        help="Enable MLflow experiment tracking.",
-    ),
-    experiment: str = typer.Option(
-        "wintermute", "--experiment",
-        help="MLflow experiment name.",
-    ),
-    run_name: str = typer.Option(
-        None, "--run-name",
-        help="MLflow run name (optional, auto-generated if not set).",
-    ),
+    data_dir: str = typer.Option("data/processed", "--data-dir", "-d"),
+    pretrained: str = typer.Option(None, "--pretrained",
+        help="Path to malbert_pretrained.safetensors to initialise encoder."),
+    epochs_phase_a: int = typer.Option(None, "--epochs-phase-a"),
+    epochs_phase_b: int = typer.Option(None, "--epochs-phase-b"),
+    batch_size: int = typer.Option(None, "--batch-size", "-b"),
+    lr: float = typer.Option(None, "--lr"),
+    num_classes: int = typer.Option(None, "--num-classes", "-c"),
+    save_path: str = typer.Option(None, "--save-path", "-o"),
 ) -> None:
-    """Train the MalwareClassifier model."""
-    from wintermute.engine.trainer import Trainer
+    """Train WintermuteMalwareDetector (MalBERT + GAT unified model)."""
+    import json as _json
+    from wintermute.engine.joint_trainer import JointTrainer
+    from wintermute.models.fusion import DetectorConfig
 
-    # Build overrides from CLI flags
-    overrides: dict = {}
-    if epochs is not None:
-        overrides.setdefault("training", {})["epochs"] = epochs
-    if batch_size is not None:
-        overrides.setdefault("training", {})["batch_size"] = batch_size
-    if lr is not None:
-        overrides.setdefault("training", {})["learning_rate"] = lr
-    if num_classes is not None:
-        overrides.setdefault("model", {})["num_classes"] = num_classes
-    if save_path is not None:
-        overrides.setdefault("training", {})["save_path"] = save_path
+    dp = Path(data_dir)
+    vocab = _json.loads((dp / "vocab.json").read_text())
+    overrides = {k: v for k, v in {
+        "epochs_phase_a": epochs_phase_a, "epochs_phase_b": epochs_phase_b,
+        "batch_size": batch_size, "learning_rate": lr, "save_path": save_path,
+    }.items() if v is not None}
 
-    # MLflow tracking overrides
-    overrides["tracking"] = {
-        "enabled": track,
-        "experiment": experiment,
-    }
-    if run_name:
-        overrides["tracking"]["run_name"] = run_name
-
-    config_path = config or "configs/model_config.yaml"
-    trainer = Trainer(config_path=config_path, overrides=overrides)
-    trainer.train(data_dir=data_dir)
+    cfg = DetectorConfig(vocab_size=len(vocab), num_classes=num_classes or 2)
+    JointTrainer(cfg, dp, overrides=overrides or None,
+                 pretrained_encoder_path=pretrained).train()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
