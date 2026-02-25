@@ -60,12 +60,8 @@ class TestHeadlessDisassembler:
 
     @patch("wintermute.data.disassembler.r2pipe")
     def test_timeout_fails(self, mock_r2pipe):
-        import time
-        r2 = MagicMock()
-        def slow(cmd):
-            if "aaa" in cmd: time.sleep(5)
-            return "[]"
-        r2.cmd.side_effect = slow
-        mock_r2pipe.open.return_value = r2
-        result = HeadlessDisassembler("slow.exe", timeout=1).extract()
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+        mock_r2pipe.open.return_value = MagicMock()
+        with patch("concurrent.futures.Future.result", side_effect=FuturesTimeoutError()):
+            result = HeadlessDisassembler("slow.exe", timeout=1).extract()
         assert result.extraction_failed

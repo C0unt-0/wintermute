@@ -31,12 +31,18 @@ class HeadlessDisassembler:
         self.max_nodes = max_nodes
 
     def extract(self) -> DisassemblyResult:
+        self._r2 = None
         with ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(self._run)
             try:
                 return fut.result(timeout=self.timeout)
             except FuturesTimeoutError:
                 logger.warning("Timeout for %s", self.binary_path)
+                if self._r2 is not None:
+                    try:
+                        self._r2.process.kill()
+                    except Exception:
+                        pass
                 return DisassemblyResult(extraction_failed=True)
             except Exception as e:
                 logger.warning("Failed %s: %s", self.binary_path, e)
@@ -44,9 +50,11 @@ class HeadlessDisassembler:
 
     def _run(self) -> DisassemblyResult:
         r2 = r2pipe.open(self.binary_path, flags=["-q", "-2"])
+        self._r2 = r2
         try:
             r2.cmd("aaa")
-            sequence, src_nodes, dst_nodes, node_opcodes = [], [], [], []
+            sequence, src_nodes, dst_nodes = [], [], []
+            node_opcodes_map: dict[int, list[str]] = {}
             node_id_map: dict[int, int] = {}
 
             for func in json.loads(r2.cmd("aflj") or "[]"):
@@ -58,14 +66,14 @@ class HeadlessDisassembler:
                     if offset not in node_id_map:
                         node_id_map[offset] = len(node_id_map)
                     idx = node_id_map[offset]
-                    while len(node_opcodes) <= idx:
-                        node_opcodes.append([])
                     ops = [op["disasm"].split()[0] for op in block.get("ops", []) if op.get("disasm")]
-                    node_opcodes[idx] = ops
+                    node_opcodes_map[idx] = ops
                     sequence.extend(ops)
+                    seen_targets: set[int] = set()
                     for key in ("jump", "fail"):
                         tgt = block.get(key)
-                        if tgt is not None:
+                        if tgt is not None and tgt not in seen_targets:
+                            seen_targets.add(tgt)
                             if tgt not in node_id_map:
                                 node_id_map[tgt] = len(node_id_map)
                             src_nodes.append(idx)
@@ -76,8 +84,7 @@ class HeadlessDisassembler:
                 logger.warning("CFG has %d nodes > limit %d for %s", n, self.max_nodes, self.binary_path)
                 return DisassemblyResult(extraction_failed=True)
 
-            while len(node_opcodes) < n:
-                node_opcodes.append([])
+            node_opcodes = [node_opcodes_map.get(i, []) for i in range(n)]
 
             return DisassemblyResult(
                 sequence=sequence,
