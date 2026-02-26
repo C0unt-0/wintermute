@@ -380,6 +380,65 @@ def pretrain(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# wintermute adv — Adversarial training (Phase 5)
+# ═══════════════════════════════════════════════════════════════════════════
+adv_app = typer.Typer(
+    name="adv",
+    help="Adversarial training pipeline (Phase 5)",
+    no_args_is_help=True,
+)
+app.add_typer(adv_app, name="adv")
+
+
+@adv_app.command()
+def run(
+    model: str = typer.Option("malware_detector.safetensors", "--model", "-m"),
+    manifest: str = typer.Option("malware_detector_manifest.json", "--manifest"),
+    vocab: str = typer.Option("data/processed/vocab.json", "--vocab", "-v"),
+    data_dir: str = typer.Option("data/processed", "--data-dir"),
+    episodes: int = typer.Option(500, "--episodes", "-n"),
+    cycles: int = typer.Option(5, "--cycles"),
+    trades_beta: float = typer.Option(1.0, "--trades-beta"),
+) -> None:
+    """Run adversarial training cycles: attack → update → store."""
+    import json as _json
+    import numpy as np
+    from wintermute.models.fusion import DetectorConfig, WintermuteMalwareDetector
+    from wintermute.adversarial.orchestrator import AdversarialOrchestrator
+
+    # Load model
+    dp = Path(data_dir)
+    with open(dp / "vocab.json") as f:
+        voc = _json.load(f)
+
+    manifest_data = _json.loads(Path(manifest).read_text())
+    cfg = DetectorConfig(
+        vocab_size=manifest_data.get("vocab_size", len(voc)),
+        num_classes=manifest_data.get("num_classes", 2),
+    )
+    detector = WintermuteMalwareDetector(cfg)
+    detector.load_weights(model)
+    typer.echo(f"Loaded model from {model}")
+
+    # Build sample pool from training data (malicious samples only)
+    x_data = np.load(dp / "x_data.npy")
+    y_data = np.load(dp / "y_data.npy")
+    pool = [
+        (x_data[i], int(y_data[i]), "unknown")
+        for i in range(len(y_data)) if y_data[i] == 1  # malicious only
+    ]
+    typer.echo(f"Sample pool: {len(pool)} malicious samples")
+
+    orch = AdversarialOrchestrator(
+        model=detector, vocab=voc, sample_pool=pool, trades_beta=trades_beta,
+    )
+
+    for c in range(cycles):
+        metrics = orch.run_cycle(n_episodes=episodes)
+        typer.echo(_json.dumps(metrics, indent=2))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Entry point
 # ═══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
