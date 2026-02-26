@@ -439,6 +439,21 @@ def run(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# wintermute tui
+# ═══════════════════════════════════════════════════════════════════════════
+@app.command()
+def tui() -> None:
+    """Launch the Wintermute Terminal User Interface."""
+    try:
+        from wintermute.tui.app import run
+        run()
+    except ImportError:
+        typer.echo("TUI requires the [tui] extra:")
+        typer.echo("  pip install -e '.[tui]'")
+        raise typer.Exit(1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Entry point
 # ═══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":

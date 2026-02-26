@@ -35,12 +35,15 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.4.0",
 ]
+tui = [
+    "textual>=1.0.0",
+]
 adversarial = [
     "gymnasium>=1.0.0",
     "lief>=0.15.0",
 ]
 all = [
-    "wintermute[api,mlops,dev,adversarial]",
+    "wintermute[api,mlops,dev,tui,adversarial]",
     "angr>=9.2.0",
 ]
 
