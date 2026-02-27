@@ -276,6 +276,33 @@ class TestTrainingScreen:
         assert hasattr(screen, "cancel_operation")
 
 
+class TestAdversarialScreen:
+    def test_has_adversarial_fields(self):
+        from wintermute.tui.screens.adversarial import ADVERSARIAL_FIELDS
+        names = [f.name for f in ADVERSARIAL_FIELDS]
+        assert "cycles" in names
+        assert "trades_beta" in names
+        assert "ewc_lambda" in names
+
+    def test_has_cancel_operation(self):
+        from wintermute.tui.screens.adversarial import AdversarialScreen
+        screen = AdversarialScreen()
+        assert hasattr(screen, "cancel_operation")
+
+
+class TestScanScreen:
+    def test_has_scan_fields(self):
+        from wintermute.tui.screens.scan import SCAN_FIELDS
+        names = [f.name for f in SCAN_FIELDS]
+        assert "file_path" in names
+        assert "family" in names
+
+    def test_has_cancel_operation(self):
+        from wintermute.tui.screens.scan import ScanScreen
+        screen = ScanScreen()
+        assert hasattr(screen, "cancel_operation")
+
+
 class TestCLI:
     def test_tui_in_help(self):
         from typer.testing import CliRunner

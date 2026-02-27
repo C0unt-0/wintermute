@@ -12,35 +12,34 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Static, RichLog, Input, Button
+from textual.widgets import Static, RichLog, Button
 from rich.text import Text
 
 from wintermute.tui import theme
 from wintermute.tui.widgets.confidence_bar import ConfidenceBar
+from wintermute.tui.widgets.config_drawer import ConfigDrawer, FieldDef
+
+
+SCAN_FIELDS = [
+    FieldDef("file_path", "File Path", "", "str"),
+    FieldDef("family", "Family Detection", "off", "switch"),
+    FieldDef("model_path", "Model Path", "malware_detector.safetensors", "str"),
+]
 
 
 class ScanScreen(Vertical):
 
     DEFAULT_CSS = """
     ScanScreen {
-        height: 100%;
+        height: 1fr;
         padding: 1;
-    }
-    #scan-input-row {
-        height: 3;
-        layout: horizontal;
-        margin-bottom: 1;
-    }
-    #scan-path {
-        width: 1fr;
-    }
-    #scan-btn {
-        width: 16;
-        margin-left: 1;
     }
     #scan-body {
         layout: horizontal;
         height: 1fr;
+    }
+    #scan-main {
+        width: 1fr;
     }
     #scan-disasm {
         width: 1fr;
@@ -52,22 +51,27 @@ class ScanScreen(Vertical):
     """
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="scan-input-row"):
-            yield Input(placeholder="Path to .exe / .asm file", id="scan-path")
-            yield Button("⊕ SCAN", id="scan-btn", variant="primary")
         with Horizontal(id="scan-body"):
-            yield DisassemblyLog(id="scan-disasm")
-            yield VerdictPanel(id="scan-verdict-col")
+            with Vertical(id="scan-main"):
+                yield DisassemblyLog(id="scan-disasm")
+                yield VerdictPanel(id="scan-verdict-col")
+            yield ConfigDrawer(
+                fields=SCAN_FIELDS,
+                title="SCAN CONFIG",
+                start_label="SCAN",
+                id="scan-drawer",
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "scan-btn":
-            path = self.query_one("#scan-path", Input).value.strip()
+        if event.button.id == "drawer-start":
+            drawer = self.query_one("#scan-drawer", ConfigDrawer)
+            values = drawer.get_values()
+            path = values.get("file_path", "").strip()
             if path:
                 self._start_scan(path)
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "scan-path" and event.value.strip():
-            self._start_scan(event.value.strip())
+    def cancel_operation(self) -> None:
+        pass  # Scans are fast enough that cancellation isn't needed
 
     def _start_scan(self, path: str) -> None:
         disasm = self.query_one("#scan-disasm", DisassemblyLog)
