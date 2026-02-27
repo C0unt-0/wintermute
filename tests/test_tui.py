@@ -116,6 +116,37 @@ class TestHooks:
         hook.on_episode_step(1, "nop_insert", 5, 0.8, True)
         hook.on_cycle_end(1, {"evasion_rate": 0.3})
 
+    def test_training_hook_cancelled(self):
+        from wintermute.tui.hooks import TrainingHook
+        hook = TrainingHook()
+        assert hook.cancelled is False
+        hook.cancel()
+        assert hook.cancelled is True
+        hook.reset()
+        assert hook.cancelled is False
+
+    def test_adversarial_hook_cancelled(self):
+        from wintermute.tui.hooks import AdversarialHook
+        hook = AdversarialHook()
+        assert hook.cancelled is False
+        hook.cancel()
+        assert hook.cancelled is True
+
+    def test_pipeline_hook_no_app(self):
+        from wintermute.tui.hooks import PipelineHook
+        hook = PipelineHook()
+        hook.on_progress("build", 0.5, "halfway")
+        hook.on_log("test message")
+        assert hook.cancelled is False
+        hook.cancel()
+        assert hook.cancelled is True
+
+    def test_adversarial_hook_vault_sample(self):
+        from wintermute.tui.hooks import AdversarialHook
+        hook = AdversarialHook()
+        sample = {"id": "v001", "family": "Ramnit"}
+        hook.on_vault_sample(sample)  # Should not raise without app
+
 
 class TestCLI:
     def test_tui_in_help(self):
