@@ -133,6 +133,7 @@ class MLMPretrainer:
         self,
         config_path: str | Path | None = None,
         overrides: dict | None = None,
+        tui_hook=None,
     ):
         cfg = OmegaConf.create(self.DEFAULTS)
         if config_path and Path(config_path).exists():
@@ -141,6 +142,7 @@ class MLMPretrainer:
         if overrides:
             cfg = OmegaConf.merge(cfg, overrides)
         self.cfg = cfg
+        self._tui_hook = tui_hook
 
     def pretrain(self, data_dir: str | Path = "data/processed") -> float:
         """
@@ -254,6 +256,12 @@ class MLMPretrainer:
 
             print(f"{epoch:5d}  {avg_loss:10.4f}  {elapsed:7.1f}s")
 
+            if self._tui_hook:
+                self._tui_hook.on_epoch(epoch, "MLM", avg_loss, 0.0, 0.0, 0.0, elapsed)
+                if self._tui_hook.cancelled:
+                    self._tui_hook.on_log(f"Pre-training cancelled at epoch {epoch}", "warn")
+                    return avg_loss
+
             if avg_loss < best_loss:
                 best_loss = avg_loss
                 model.save_weights(pcfg.save_path)
@@ -262,4 +270,6 @@ class MLMPretrainer:
         print(f"\n✅  MLM pre-training complete.  Best loss: {best_loss:.4f}")
         print(f"    Encoder weights saved to: {pcfg.save_path}")
         print(f"    Use these for fine-tuning: wintermute train --pretrained {pcfg.save_path}")
+        if self._tui_hook:
+            self._tui_hook.on_log(f"Pre-training complete — best loss: {best_loss:.4f}", "ok")
         return best_loss

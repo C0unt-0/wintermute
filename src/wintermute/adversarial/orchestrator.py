@@ -43,6 +43,7 @@ class AdversarialOrchestrator:
         ppo_config: PPOConfig | None = None,
         vault_config: VaultConfig | None = None,
         trades_beta: float = 1.0,
+        tui_hook=None,
     ):
         self.model = model
         self.vocab = vocab
@@ -82,6 +83,7 @@ class AdversarialOrchestrator:
         self.trades = TRADESLoss(beta=trades_beta)
 
         self._cycle_count = 0
+        self._tui_hook = tui_hook
 
     def run_cycle(self, n_episodes: int = 500) -> dict:
         """Run one full adversarial cycle: attack -> PPO update -> store evasions."""
@@ -105,7 +107,7 @@ class AdversarialOrchestrator:
         print(f"   PPO loss: {ppo_metrics['loss']:.4f}")
         print(f"   Vault size: {len(self.vault)}")
 
-        return {
+        metrics = {
             "cycle": self._cycle_count,
             "evasion_rate": evasion_rate,
             "ppo_loss": ppo_metrics["loss"],
@@ -113,6 +115,9 @@ class AdversarialOrchestrator:
             "mean_confidence": episode_stats["mean_final_confidence"],
             "mean_mutations": episode_stats["mean_mutations"],
         }
+        if self._tui_hook:
+            self._tui_hook.on_cycle_end(self._cycle_count, metrics)
+        return metrics
 
     def _collect_rollouts(self, n_episodes: int) -> tuple[dict, dict]:
         """Collect experience from env. Numpy throughout, convert to MLX in PPO.update()."""

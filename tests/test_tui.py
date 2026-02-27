@@ -236,6 +236,26 @@ class TestStatusBar:
         assert "building..." in text
 
 
+class TestEngineHookIntegration:
+    def test_joint_trainer_accepts_hook(self):
+        import inspect
+        from wintermute.engine.joint_trainer import JointTrainer
+        sig = inspect.signature(JointTrainer.__init__)
+        assert "tui_hook" in sig.parameters
+
+    def test_pretrain_accepts_hook(self):
+        import inspect
+        from wintermute.engine.pretrain import MLMPretrainer
+        sig = inspect.signature(MLMPretrainer.__init__)
+        assert "tui_hook" in sig.parameters
+
+    def test_orchestrator_accepts_hook(self):
+        import inspect
+        from wintermute.adversarial.orchestrator import AdversarialOrchestrator
+        sig = inspect.signature(AdversarialOrchestrator.__init__)
+        assert "tui_hook" in sig.parameters
+
+
 class TestCLI:
     def test_tui_in_help(self):
         from typer.testing import CliRunner
