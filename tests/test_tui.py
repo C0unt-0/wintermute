@@ -17,6 +17,11 @@ class TestTheme:
         assert len(STYLESHEET) > 200
         assert "Screen" in STYLESHEET
 
+    def test_stylesheet_has_drawer_styles(self):
+        from wintermute.tui import theme
+        assert "ConfigDrawer" in theme.STYLESHEET
+        assert "StatusBar" in theme.STYLESHEET
+
 
 class TestEvents:
     def test_epoch_complete(self):
@@ -254,6 +259,21 @@ class TestEngineHookIntegration:
         from wintermute.adversarial.orchestrator import AdversarialOrchestrator
         sig = inspect.signature(AdversarialOrchestrator.__init__)
         assert "tui_hook" in sig.parameters
+
+
+class TestTrainingScreen:
+    def test_has_training_fields(self):
+        from wintermute.tui.screens.training import TRAINING_FIELDS
+        names = [f.name for f in TRAINING_FIELDS]
+        assert "epochs_phase_a" in names
+        assert "epochs_phase_b" in names
+        assert "learning_rate" in names
+        assert "batch_size" in names
+
+    def test_has_cancel_operation(self):
+        from wintermute.tui.screens.training import TrainingScreen
+        screen = TrainingScreen()
+        assert hasattr(screen, "cancel_operation")
 
 
 class TestCLI:
