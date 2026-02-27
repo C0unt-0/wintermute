@@ -1,5 +1,10 @@
 # 🧠 Project Wintermute
 
+![Python](https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Apple%20Silicon-black?logo=apple)
+![MLX](https://img.shields.io/badge/backend-MLX-orange)
+
 **MLX-native malware classifier for Apple Silicon — treats disassembled binaries as an NLP problem.**
 
 Wintermute reverse-engineers executables with Radare2, extracts both a linear opcode sequence and a control-flow graph, then classifies the sample through a unified deep learning model that fuses a Transformer encoder (MalBERT) with a Graph Attention Network (GAT) via cross-attention. An adversarial RL pipeline continuously probes the model for blind spots and hardens it against evasion.
@@ -8,7 +13,23 @@ Everything runs natively on Apple Silicon through [MLX](https://github.com/ml-ex
 
 ---
 
-## Architecture
+## Table of Contents
+
+- [Architecture](#-architecture)
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [Terminal UI](#-terminal-ui)
+- [CLI Reference](#-cli-reference)
+- [DVC Pipeline](#-dvc-pipeline)
+- [Microsoft Malware Families](#-microsoft-malware-families-9-class)
+- [Project Structure](#-project-structure)
+- [Implementation Status](#-implementation-status)
+- [Memory & Troubleshooting](#-memory--troubleshooting)
+- [Safety](#-safety)
+
+---
+
+## 🏗️ Architecture
 
 ```
                            ┌──────────────────────────────────────────────────────────────────┐
@@ -42,9 +63,11 @@ Everything runs natively on Apple Silicon through [MLX](https://github.com/ml-ex
                            └──────────────────────────────────────────────────────────────────┘
 ```
 
-When no CFG is available (single `.asm` file, or Radare2 extraction fails), a learned `<NO_GRAPH>` embedding is used in place of the GAT output — the model degrades gracefully to sequence-only classification.
+> [!NOTE]
+> When no CFG is available (single `.asm` file, or Radare2 extraction fails), a learned `<NO_GRAPH>` embedding is used in place of the GAT output — the model degrades gracefully to sequence-only classification.
 
-### DetectorConfig Defaults
+<details>
+<summary><strong>DetectorConfig Defaults</strong></summary>
 
 | Parameter          | Value          | Notes                               |
 | :----------------- | :------------- | :---------------------------------- |
@@ -59,6 +82,8 @@ When no CFG is available (single `.asm` file, or Radare2 extraction fails), a le
 | `dropout`          | 0.1            | All sub-layers                      |
 | Precision          | `bfloat16`     | Cast via `cast_to_bf16()`           |
 | Checkpoint         | `.safetensors` | + `manifest.json` with vocab SHA256 |
+
+</details>
 
 ### Training Pipeline
 
@@ -102,7 +127,10 @@ Mutations are validated by a `TieredOracle` (token-level structural checks; CFG 
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
+
+> [!TIP]
+> Generate synthetic data to try Wintermute without real malware samples.
 
 ```bash
 # Clone and set up
@@ -126,11 +154,12 @@ pip install -e ".[tui]"
 wintermute tui
 ```
 
-**Requirements:** Apple Silicon Mac (M1–M4), macOS 14+, Python 3.10+
+> [!IMPORTANT]
+> **Requirements:** Apple Silicon Mac (M1–M4), macOS 14+, Python 3.10+
 
 ---
 
-## Installation
+## 📦 Installation
 
 ```bash
 pip install -e .                 # Base: MLX, tokenizer, CLI
@@ -144,9 +173,11 @@ pip install -e ".[all]"          # Everything
 
 ---
 
-## Terminal UI
+## 🖥️ Terminal UI
 
 A 5-tab Textual interface for real-time monitoring. Launch with `wintermute tui`.
+
+> _Screenshot: run `wintermute tui` to see the dashboard_
 
 | Key | Tab             | What it shows                                                                  |
 | :-- | :-------------- | :----------------------------------------------------------------------------- |
@@ -160,7 +191,7 @@ The TUI connects to training and adversarial loops via callback hooks (`wintermu
 
 ---
 
-## CLI Reference
+## 🔧 CLI Reference
 
 ```bash
 # ── Scan ──
@@ -193,7 +224,7 @@ wintermute tui
 
 ---
 
-## DVC Pipeline
+## 🔁 DVC Pipeline
 
 The full reproducible pipeline is defined in `dvc.yaml`:
 
@@ -216,7 +247,10 @@ dvc params diff         # Compare hyperparameter changes
 
 ---
 
-## Microsoft Malware Families (9-class)
+## 🦠 Microsoft Malware Families (9-class)
+
+<details>
+<summary><strong>Family reference table</strong></summary>
 
 | ID  | Family         | Type              | Samples |
 | :-- | :------------- | :---------------- | :------ |
@@ -230,11 +264,16 @@ dvc params diff         # Compare hyperparameter changes
 | 7   | Obfuscator.ACY | Obfuscated        | 1,228   |
 | 8   | Gatak          | Backdoor          | 1,013   |
 
+</details>
+
 Full dataset: [Kaggle — Microsoft Malware Classification Challenge](https://www.kaggle.com/c/malware-classification/data)
 
 ---
 
-## Project Structure
+## 📂 Project Structure
+
+<details>
+<summary><strong>Expand full directory tree</strong></summary>
 
 ```
 wintermute/
@@ -245,7 +284,7 @@ wintermute/
 ├── data/
 │   ├── raw/                            # PE files (safe/ & malicious/)
 │   ├── processed/                      # x_data.npy, y_data.npy, vocab.json
-│   │   └── graphs/                     # DisassemblyResult pickles for GAT
+│   │   └── graphs/                     # DisassemblyResult graphs for GAT
 │   ├── bazaar/                         # MalwareBazaar downloads
 │   └── ms-malware/                     # Microsoft dataset .asm files
 ├── src/wintermute/
@@ -323,9 +362,11 @@ wintermute/
 └── pyproject.toml                      # Dependencies + extras
 ```
 
+</details>
+
 ---
 
-## Implementation Status
+## 📊 Implementation Status
 
 | Phase   | Scope                                                | Status                                 |
 | :------ | :--------------------------------------------------- | :------------------------------------- |
@@ -338,7 +379,7 @@ wintermute/
 
 ---
 
-## Memory & Troubleshooting
+## 🛠️ Memory & Troubleshooting
 
 | Symptom               | Fix                                                             |
 | :-------------------- | :-------------------------------------------------------------- |
@@ -349,8 +390,9 @@ wintermute/
 
 ---
 
-## Safety
+## ⚠️ Safety
 
+> [!CAUTION]
 > **Handle malware samples only in an isolated VM or air-gapped environment.**
 > Never run unknown binaries on your host machine.
 > Wintermute performs **static analysis only** — no samples are executed.
