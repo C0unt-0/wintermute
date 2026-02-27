@@ -4,7 +4,7 @@ capstone>=5.0.0
 pefile>=2023.2.7
 requests>=2.31.0
 pyzipper>=0.3.6
-r2pipe==1.7.7
+r2pipe==1.9.6
 celery==5.3.6
 redis==5.0.1
 networkx==3.1
