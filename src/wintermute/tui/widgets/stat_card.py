@@ -16,8 +16,9 @@ class StatCard(Static):
     }}
     """
 
-    def __init__(self, label: str, value: str, subtitle: str = "",
-                 accent: str = "", **kwargs) -> None:
+    def __init__(
+        self, label: str, value: str, subtitle: str = "", accent: str = "", **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self._label = label
         self._value = value

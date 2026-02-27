@@ -40,6 +40,7 @@ Screen {{
 
 TabbedContent {{
     background: {BG};
+    height: 1fr;
 }}
 
 TabPane {{
@@ -144,5 +145,39 @@ Button:hover {{
 
 .flex-1 {{
     width: 1fr;
+}}
+
+ConfigDrawer {{
+    dock: right;
+    width: 35%;
+    height: 1fr;
+    background: {BG_PANEL};
+    border-left: solid {BORDER};
+    padding: 1 2;
+    overflow-y: auto;
+    display: none;
+}}
+ConfigDrawer.visible {{
+    display: block;
+}}
+ConfigDrawer .drawer-title {{
+    text-style: bold;
+    color: {TEXT_BRIGHT};
+    margin-bottom: 1;
+}}
+ConfigDrawer Label {{
+    color: {TEXT_MUTED};
+    margin-top: 1;
+}}
+ConfigDrawer Button {{
+    margin-top: 2;
+    width: 100%;
+}}
+StatusBar {{
+    height: 1;
+    dock: bottom;
+    background: {BG_PANEL};
+    color: {TEXT_MUTED};
+    padding: 0 2;
 }}
 """

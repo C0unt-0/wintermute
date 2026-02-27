@@ -17,15 +17,14 @@ class ActionLog(RichLog):
     """
 
     _LEVEL_COLORS = {
-        "info": theme.CYAN, "ok": theme.GREEN,
-        "warn": theme.AMBER, "error": theme.RED,
+        "info": theme.CYAN,
+        "ok": theme.GREEN,
+        "warn": theme.AMBER,
+        "error": theme.RED,
     }
 
-    def add_action(self, step: int, action: str, pos: int,
-                   conf: float, ok: bool) -> None:
-        conf_color = (theme.GREEN if conf < 0.5
-                      else theme.AMBER if conf < 0.7
-                      else theme.TEXT_MUTED)
+    def add_action(self, step: int, action: str, pos: int, conf: float, ok: bool) -> None:
+        conf_color = theme.GREEN if conf < 0.5 else theme.AMBER if conf < 0.7 else theme.TEXT_MUTED
         line = Text()
         line.append(f"{step:3d} ", style=theme.TEXT_MUTED)
         line.append("✓ " if ok else "✗ ", style=theme.GREEN if ok else theme.RED)
@@ -36,6 +35,7 @@ class ActionLog(RichLog):
 
     def add_entry(self, text: str, level: str = "info") -> None:
         from datetime import datetime
+
         color = self._LEVEL_COLORS.get(level, theme.TEXT)
         ts = datetime.now().strftime("%H:%M:%S")
         line = Text()
