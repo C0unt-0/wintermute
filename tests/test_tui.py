@@ -109,6 +109,24 @@ class TestApp:
         from wintermute.tui.app import WintermuteApp
         assert len(WintermuteApp().CSS) > 200
 
+    def test_app_has_six_tabs(self):
+        from wintermute.tui.app import WintermuteApp
+        app = WintermuteApp()
+        bindings = {b.key: b for b in app.BINDINGS}
+        assert "6" in bindings
+
+    def test_app_has_config_binding(self):
+        from wintermute.tui.app import WintermuteApp
+        app = WintermuteApp()
+        bindings = {b.key: b for b in app.BINDINGS}
+        assert "c" in bindings
+
+    def test_app_has_cancel_binding(self):
+        from wintermute.tui.app import WintermuteApp
+        app = WintermuteApp()
+        keys = {b.key for b in app.BINDINGS}
+        assert "ctrl+x" in keys
+
 
 class TestHooks:
     def test_training_hook_no_app(self):
