@@ -148,6 +148,94 @@ class TestHooks:
         hook.on_vault_sample(sample)  # Should not raise without app
 
 
+class TestConfigDrawer:
+    def test_create_drawer(self):
+        from wintermute.tui.widgets.config_drawer import ConfigDrawer
+        drawer = ConfigDrawer()
+        assert drawer is not None
+
+    def test_field_definitions(self):
+        from wintermute.tui.widgets.config_drawer import FieldDef
+        f = FieldDef(name="epochs", label="Epochs", default="50", field_type="int")
+        assert f.name == "epochs"
+        assert f.default == "50"
+        assert f.field_type == "int"
+
+    def test_select_field(self):
+        from wintermute.tui.widgets.config_drawer import FieldDef
+        f = FieldDef(
+            name="num_classes",
+            label="Num Classes",
+            default="2",
+            field_type="select",
+            options=["2", "9"],
+        )
+        assert f.options == ["2", "9"]
+
+    def test_switch_field(self):
+        from wintermute.tui.widgets.config_drawer import FieldDef
+        f = FieldDef(
+            name="mlflow",
+            label="MLflow Tracking",
+            default="off",
+            field_type="switch",
+        )
+        assert f.field_type == "switch"
+
+    def test_get_values_defaults(self):
+        from wintermute.tui.widgets.config_drawer import ConfigDrawer, FieldDef
+        fields = [
+            FieldDef(name="epochs", label="Epochs", default="50", field_type="int"),
+            FieldDef(name="lr", label="Learning Rate", default="3e-4", field_type="float"),
+        ]
+        drawer = ConfigDrawer(fields=fields)
+        values = drawer.get_values()
+        assert values["epochs"] == "50"
+        assert values["lr"] == "3e-4"
+
+
+class TestStatusBar:
+    def test_create(self):
+        from wintermute.tui.widgets.status_bar import StatusBar
+        bar = StatusBar()
+        assert bar is not None
+
+    def test_initial_render(self):
+        from wintermute.tui.widgets.status_bar import StatusBar
+        bar = StatusBar()
+        text = bar.render()
+        assert "Ready" in str(text)
+
+    def test_set_task(self):
+        from wintermute.tui.widgets.status_bar import StatusBar
+        bar = StatusBar()
+        bar.set_task("training", "epoch 5/50", 0.1)
+        assert bar._tasks["training"]["label"] == "epoch 5/50"
+
+    def test_clear_task(self):
+        from wintermute.tui.widgets.status_bar import StatusBar
+        bar = StatusBar()
+        bar.set_task("training", "epoch 5/50", 0.1)
+        bar.clear_task("training")
+        assert "training" not in bar._tasks
+
+    def test_render_with_task(self):
+        from wintermute.tui.widgets.status_bar import StatusBar
+        bar = StatusBar()
+        bar.set_task("training", "epoch 5/50", 0.5)
+        text = str(bar.render())
+        assert "Training" in text
+        assert "epoch 5/50" in text
+
+    def test_render_indeterminate(self):
+        from wintermute.tui.widgets.status_bar import StatusBar
+        bar = StatusBar()
+        bar.set_task("pipeline", "building...", -1)
+        text = str(bar.render())
+        assert "Pipeline" in text
+        assert "building..." in text
+
+
 class TestCLI:
     def test_tui_in_help(self):
         from typer.testing import CliRunner
