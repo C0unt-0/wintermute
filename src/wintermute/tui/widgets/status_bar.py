@@ -47,9 +47,7 @@ class StatusBar(Static):
                 filled = int(progress * 10)
                 bar = "▪" * filled + "░" * (10 - filled)
                 pct = f"{progress * 100:.0f}%"
-                parts.append(
-                    f"[{theme.CYAN}]{key.title()}:[/] {label} {bar} {pct}"
-                )
+                parts.append(f"[{theme.CYAN}]{key.title()}:[/] {label} {bar} {pct}")
             else:
                 parts.append(f"[{theme.CYAN}]{key.title()}:[/] {label}")
         return Text.from_markup("  ".join(parts))

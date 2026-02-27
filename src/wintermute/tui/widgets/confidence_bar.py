@@ -16,8 +16,7 @@ class ConfidenceBar(Static):
     }
     """
 
-    def __init__(self, label: str, value: float = 0.0,
-                 color: str = "", **kwargs) -> None:
+    def __init__(self, label: str, value: float = 0.0, color: str = "", **kwargs) -> None:
         super().__init__(**kwargs)
         self._label = label
         self._value = max(0.0, min(1.0, value))

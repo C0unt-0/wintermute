@@ -9,7 +9,6 @@ from wintermute.tui.widgets.stat_card import StatCard
 
 
 class DashboardScreen(Vertical):
-
     DEFAULT_CSS = """
     DashboardScreen {
         height: 1fr;
@@ -43,16 +42,17 @@ class DashboardScreen(Vertical):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="dash-stats-row"):
-            yield StatCard("MODEL", "v3.0.0", "MalBERT + GAT + Fusion",
-                           accent=theme.CYAN, id="stat-model")
-            yield StatCard("CLEAN TPR", "—", "not yet evaluated",
-                           accent=theme.GREEN, id="stat-tpr")
-            yield StatCard("ADV. TPR", "—", "Phase 5 not trained",
-                           accent=theme.CYAN, id="stat-adv-tpr")
-            yield StatCard("MACRO F1", "—", "target ≥ 0.90",
-                           accent=theme.AMBER, id="stat-f1")
-            yield StatCard("VAULT", "0", "no adversarial cycles",
-                           accent=theme.PURPLE, id="stat-vault")
+            yield StatCard(
+                "MODEL", "v3.0.0", "MalBERT + GAT + Fusion", accent=theme.CYAN, id="stat-model"
+            )
+            yield StatCard("CLEAN TPR", "—", "not yet evaluated", accent=theme.GREEN, id="stat-tpr")
+            yield StatCard(
+                "ADV. TPR", "—", "Phase 5 not trained", accent=theme.CYAN, id="stat-adv-tpr"
+            )
+            yield StatCard("MACRO F1", "—", "target ≥ 0.90", accent=theme.AMBER, id="stat-f1")
+            yield StatCard(
+                "VAULT", "0", "no adversarial cycles", accent=theme.PURPLE, id="stat-vault"
+            )
 
         with Horizontal(id="dash-mid-row"):
             yield FamilyChart(id="dash-families")
@@ -60,8 +60,7 @@ class DashboardScreen(Vertical):
 
         yield DashboardLog(id="dash-log")
 
-    def update_stat(self, stat_id: str, value: str,
-                    subtitle: str | None = None) -> None:
+    def update_stat(self, stat_id: str, value: str, subtitle: str | None = None) -> None:
         try:
             card = self.query_one(f"#{stat_id}", StatCard)
             card.update_value(value, subtitle)
@@ -88,23 +87,21 @@ class ArchitecturePanel(Static):
     """
 
     _ROWS = [
-        ("Embedding",  "256-D shared tokens",           theme.TEXT_BRIGHT),
-        ("MalBERT",    "6 layers · 8 heads · 1024 FFN", theme.CYAN),
-        ("RoPE",       "rotary positional encoding",    theme.CYAN),
-        ("GAT",        "3 layers · 4 heads",            theme.GREEN),
-        ("Fusion",     "cross-attn · 4 heads",          theme.PURPLE),
-        ("Classifier", "Linear(256, num_classes)",      theme.AMBER),
-        ("Seq length",  "2048 tokens",                  theme.TEXT_MUTED),
-        ("Dropout",    "0.1",                           theme.TEXT_MUTED),
+        ("Embedding", "256-D shared tokens", theme.TEXT_BRIGHT),
+        ("MalBERT", "6 layers · 8 heads · 1024 FFN", theme.CYAN),
+        ("RoPE", "rotary positional encoding", theme.CYAN),
+        ("GAT", "3 layers · 4 heads", theme.GREEN),
+        ("Fusion", "cross-attn · 4 heads", theme.PURPLE),
+        ("Classifier", "Linear(256, num_classes)", theme.AMBER),
+        ("Seq length", "2048 tokens", theme.TEXT_MUTED),
+        ("Dropout", "0.1", theme.TEXT_MUTED),
     ]
 
     def render(self) -> str:
         header = f"[bold {theme.TEXT_BRIGHT}]ARCHITECTURE[/]\n"
         lines = []
         for name, desc, color in self._ROWS:
-            lines.append(
-                f"  [{color}]▸ {name:<12}[/] [{theme.TEXT_MUTED}]{desc}[/]"
-            )
+            lines.append(f"  [{color}]▸ {name:<12}[/] [{theme.TEXT_MUTED}]{desc}[/]")
         return header + "\n".join(lines)
 
 
@@ -120,15 +117,15 @@ class FamilyChart(Static):
     """
 
     _FAMILIES = [
-        ("Ramnit",        0, theme.RED),
-        ("Lollipop",      0, theme.AMBER),
-        ("Kelihos_ver3",  0, theme.CYAN),
-        ("Vundo",         0, theme.PURPLE),
-        ("Simda",         0, theme.GREEN),
-        ("Tracur",        0, theme.AMBER),
-        ("Kelihos_ver1",  0, theme.CYAN),
-        ("Obfuscator.ACY",0, theme.PURPLE),
-        ("Gatak",         0, theme.AMBER),
+        ("Ramnit", 0, theme.RED),
+        ("Lollipop", 0, theme.AMBER),
+        ("Kelihos_ver3", 0, theme.CYAN),
+        ("Vundo", 0, theme.PURPLE),
+        ("Simda", 0, theme.GREEN),
+        ("Tracur", 0, theme.AMBER),
+        ("Kelihos_ver1", 0, theme.CYAN),
+        ("Obfuscator.ACY", 0, theme.PURPLE),
+        ("Gatak", 0, theme.AMBER),
     ]
 
     def update_counts(self, counts: dict[str, int]) -> None:
@@ -152,7 +149,6 @@ class FamilyChart(Static):
 
 
 class DashboardLog(RichLog):
-
     DEFAULT_CSS = f"""
     DashboardLog {{
         background: {theme.BG_CARD};
@@ -168,8 +164,8 @@ class DashboardLog(RichLog):
 
     def add_entry(self, text: str, level: str = "info") -> None:
         from datetime import datetime
-        colors = {"info": theme.CYAN, "ok": theme.GREEN,
-                  "warn": theme.AMBER, "error": theme.RED}
+
+        colors = {"info": theme.CYAN, "ok": theme.GREEN, "warn": theme.AMBER, "error": theme.RED}
         color = colors.get(level, theme.TEXT)
         ts = datetime.now().strftime("%H:%M:%S")
         line = Text()

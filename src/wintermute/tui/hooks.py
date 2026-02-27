@@ -32,17 +32,32 @@ class TrainingHook:
     def reset(self) -> None:
         self.cancelled = False
 
-    def on_epoch(self, epoch: int, phase: str, loss: float,
-                 train_acc: float, val_acc: float, f1: float,
-                 elapsed: float) -> None:
+    def on_epoch(
+        self,
+        epoch: int,
+        phase: str,
+        loss: float,
+        train_acc: float,
+        val_acc: float,
+        f1: float,
+        elapsed: float,
+    ) -> None:
         if self.app is None:
             return
         from wintermute.tui.events import EpochComplete
+
         self.app.call_from_thread(
             self.app.post_message,
-            EpochComplete(epoch=epoch, phase=phase, loss=loss,
-                          train_acc=train_acc, val_acc=val_acc,
-                          f1=f1, elapsed=elapsed))
+            EpochComplete(
+                epoch=epoch,
+                phase=phase,
+                loss=loss,
+                train_acc=train_acc,
+                val_acc=val_acc,
+                f1=f1,
+                elapsed=elapsed,
+            ),
+        )
 
     def on_log(self, text: str, level: str = "info") -> None:
         if self.app is None:
@@ -63,32 +78,33 @@ class AdversarialHook:
     def reset(self) -> None:
         self.cancelled = False
 
-    def on_episode_step(self, step: int, action: str, pos: int,
-                        conf: float, ok: bool) -> None:
+    def on_episode_step(self, step: int, action: str, pos: int, conf: float, ok: bool) -> None:
         if self.app is None:
             return
         from wintermute.tui.events import AdversarialEpisodeStep
+
         self.app.call_from_thread(
             self.app.post_message,
-            AdversarialEpisodeStep(step=step, action=action,
-                                    position=pos, confidence=conf,
-                                    valid=ok))
+            AdversarialEpisodeStep(
+                step=step, action=action, position=pos, confidence=conf, valid=ok
+            ),
+        )
 
     def on_cycle_end(self, cycle: int, metrics: dict) -> None:
         if self.app is None:
             return
         from wintermute.tui.events import AdversarialCycleEnd
+
         self.app.call_from_thread(
-            self.app.post_message,
-            AdversarialCycleEnd(cycle=cycle, metrics=metrics))
+            self.app.post_message, AdversarialCycleEnd(cycle=cycle, metrics=metrics)
+        )
 
     def on_vault_sample(self, sample: dict) -> None:
         if self.app is None:
             return
         from wintermute.tui.events import VaultSampleAdded
-        self.app.call_from_thread(
-            self.app.post_message,
-            VaultSampleAdded(sample=sample))
+
+        self.app.call_from_thread(self.app.post_message, VaultSampleAdded(sample=sample))
 
     def on_log(self, text: str, level: str = "info") -> None:
         if self.app is None:
@@ -113,9 +129,11 @@ class PipelineHook:
         if self.app is None:
             return
         from wintermute.tui.events import PipelineProgress
+
         self.app.call_from_thread(
             self.app.post_message,
-            PipelineProgress(operation=operation, progress=progress, message=message))
+            PipelineProgress(operation=operation, progress=progress, message=message),
+        )
 
     def on_log(self, text: str, level: str = "info") -> None:
         if self.app is None:

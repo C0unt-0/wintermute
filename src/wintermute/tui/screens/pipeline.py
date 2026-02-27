@@ -79,7 +79,11 @@ class PipelineScreen(Vertical):
             with Vertical(id="pipe-main"):
                 yield Label("Operation")
                 yield Select(
-                    [("Build Dataset", "build"), ("Synthetic Data", "synthetic"), ("MalBERT Pretrain", "pretrain")],
+                    [
+                        ("Build Dataset", "build"),
+                        ("Synthetic Data", "synthetic"),
+                        ("MalBERT Pretrain", "pretrain"),
+                    ],
                     value="build",
                     id="pipe-op-select",
                 )

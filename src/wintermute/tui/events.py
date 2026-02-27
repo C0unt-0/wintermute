@@ -6,9 +6,16 @@ from textual.message import Message
 class EpochComplete(Message):
     """Fired after each training epoch. phase is 'A' or 'B' matching JointTrainer."""
 
-    def __init__(self, epoch: int, phase: str, loss: float,
-                 train_acc: float, val_acc: float, f1: float,
-                 elapsed: float) -> None:
+    def __init__(
+        self,
+        epoch: int,
+        phase: str,
+        loss: float,
+        train_acc: float,
+        val_acc: float,
+        f1: float,
+        elapsed: float,
+    ) -> None:
         super().__init__()
         self.epoch = epoch
         self.phase = phase
@@ -40,8 +47,9 @@ class AdversarialCycleEnd(Message):
 class AdversarialEpisodeStep(Message):
     """Fired for each action in a live adversarial episode."""
 
-    def __init__(self, step: int, action: str, position: int,
-                 confidence: float, valid: bool) -> None:
+    def __init__(
+        self, step: int, action: str, position: int, confidence: float, valid: bool
+    ) -> None:
         super().__init__()
         self.step = step
         self.action = action
@@ -72,8 +80,9 @@ class PipelineProgress(Message):
 class EvaluationComplete(Message):
     """Fired when training/evaluation produces final metrics."""
 
-    def __init__(self, f1: float, accuracy: float,
-                 family_counts: dict[str, int] | None = None) -> None:
+    def __init__(
+        self, f1: float, accuracy: float, family_counts: dict[str, int] | None = None
+    ) -> None:
         super().__init__()
         self.f1 = f1
         self.accuracy = accuracy

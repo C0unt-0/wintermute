@@ -22,7 +22,6 @@ TRAINING_FIELDS = [
 
 
 class TrainingScreen(Vertical):
-
     DEFAULT_CSS = """
     TrainingScreen {
         height: 1fr;
@@ -53,10 +52,8 @@ class TrainingScreen(Vertical):
                 yield TrainStatusBar(id="train-status")
                 yield ProgressBar(total=100, show_eta=True, id="train-progress")
                 with Horizontal(id="train-charts"):
-                    yield SparkPanel("LOSS", theme.AMBER, id="loss-panel",
-                                     classes="train-chart")
-                    yield SparkPanel("ACCURACY", theme.GREEN, id="acc-panel",
-                                     classes="train-chart")
+                    yield SparkPanel("LOSS", theme.AMBER, id="loss-panel", classes="train-chart")
+                    yield SparkPanel("ACCURACY", theme.GREEN, id="acc-panel", classes="train-chart")
                 yield EpochTable(id="train-epochs")
             yield ConfigDrawer(
                 fields=TRAINING_FIELDS,
@@ -128,13 +125,18 @@ class TrainingScreen(Vertical):
         acc_panel.set_data(self._acc_data, f"{event.val_acc:.1%}")
 
         table = self.query_one("#train-epochs", EpochTable)
-        table.add_epoch(event.epoch, event.phase, event.loss,
-                        event.train_acc, event.val_acc, event.f1,
-                        event.elapsed)
+        table.add_epoch(
+            event.epoch,
+            event.phase,
+            event.loss,
+            event.train_acc,
+            event.val_acc,
+            event.f1,
+            event.elapsed,
+        )
 
 
 class TrainStatusBar(Static):
-
     DEFAULT_CSS = f"""
     TrainStatusBar {{
         background: {theme.BG_CARD};
@@ -145,8 +147,10 @@ class TrainStatusBar(Static):
     """
 
     def render(self) -> str:
-        return (f"  [{theme.TEXT_MUTED}]PHASE[/] [{theme.TEXT_MUTED}]—[/]"
-                f"  [{theme.TEXT_MUTED}]Start training to see live metrics[/]")
+        return (
+            f"  [{theme.TEXT_MUTED}]PHASE[/] [{theme.TEXT_MUTED}]—[/]"
+            f"  [{theme.TEXT_MUTED}]Start training to see live metrics[/]"
+        )
 
     def set_state(self, phase: str, epoch: int, loss: float) -> None:
         phase_label = "A — ENCODER FROZEN" if phase == "A" else "B — FULL FINETUNE"
@@ -155,11 +159,11 @@ class TrainStatusBar(Static):
             f"  [{theme.TEXT_MUTED}]PHASE[/] "
             f"[bold {phase_color} on {theme.BG_HOVER}] {phase_label} [/]"
             f"  [{theme.TEXT_MUTED}]EPOCH[/] [{theme.TEXT_BRIGHT}]{epoch}[/]"
-            f"  [{theme.TEXT_MUTED}]LOSS[/] [{theme.AMBER}]{loss:.4f}[/]")
+            f"  [{theme.TEXT_MUTED}]LOSS[/] [{theme.AMBER}]{loss:.4f}[/]"
+        )
 
 
 class SparkPanel(Vertical):
-
     DEFAULT_CSS = f"""
     SparkPanel {{
         background: {theme.BG_CARD};
@@ -175,14 +179,15 @@ class SparkPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]—[/]",
-            id=f"{self.id}-lbl")
+            f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]—[/]", id=f"{self.id}-lbl"
+        )
         yield Sparkline([], id=f"{self.id}-spark")
 
     def set_data(self, data: list[float], current: str) -> None:
         try:
             self.query_one(f"#{self.id}-lbl", Static).update(
-                f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]{current}[/]")
+                f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]{current}[/]"
+            )
             self.query_one(f"#{self.id}-spark", Sparkline).data = data
         except Exception:
             pass
@@ -199,12 +204,25 @@ class EpochTable(DataTable):
     """
 
     def on_mount(self) -> None:
-        self.add_columns("Epoch", "Phase", "Loss", "Train Acc",
-                         "Val Acc", "F1", "Time")
+        self.add_columns("Epoch", "Phase", "Loss", "Train Acc", "Val Acc", "F1", "Time")
 
-    def add_epoch(self, epoch: int, phase: str, loss: float,
-                  train_acc: float, val_acc: float, f1: float,
-                  elapsed: float) -> None:
-        self.add_row(str(epoch), phase, f"{loss:.4f}", f"{train_acc:.1%}",
-                     f"{val_acc:.1%}", f"{f1:.3f}", f"{elapsed:.1f}s")
+    def add_epoch(
+        self,
+        epoch: int,
+        phase: str,
+        loss: float,
+        train_acc: float,
+        val_acc: float,
+        f1: float,
+        elapsed: float,
+    ) -> None:
+        self.add_row(
+            str(epoch),
+            phase,
+            f"{loss:.4f}",
+            f"{train_acc:.1%}",
+            f"{val_acc:.1%}",
+            f"{f1:.3f}",
+            f"{elapsed:.1f}s",
+        )
         self.scroll_end()

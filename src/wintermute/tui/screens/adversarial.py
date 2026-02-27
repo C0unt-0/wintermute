@@ -22,13 +22,13 @@ ADVERSARIAL_FIELDS = [
 def _phase5_available() -> bool:
     try:
         import gymnasium  # noqa: F401
+
         return True
     except ImportError:
         return False
 
 
 class AdversarialScreen(Vertical):
-
     DEFAULT_CSS = """
     AdversarialScreen {
         height: 1fr;
@@ -59,20 +59,31 @@ class AdversarialScreen(Vertical):
                 f"  [{theme.CYAN}]pip install -e '.[adversarial]'[/]\n\n"
                 f"  [{theme.TEXT_MUTED}]Then implement the adversarial training loop[/]\n"
                 f"  [{theme.TEXT_MUTED}]per wintermute-phase5-mlx-spec.md[/]",
-                id="adv-placeholder")
+                id="adv-placeholder",
+            )
             return
 
         with Horizontal(id="adv-body"):
             with Vertical(id="adv-main"):
                 with Horizontal(id="adv-team-row"):
                     yield TeamCard(
-                        team="RED TEAM — ATTACKER", icon="⚔", color=theme.RED,
+                        team="RED TEAM — ATTACKER",
+                        icon="⚔",
+                        color=theme.RED,
                         detail="PPO Agent · lr=1e-4 · γ=0.5 · 256-step rollouts",
-                        metric="—", metric_label="evasion rate", id="red-card")
+                        metric="—",
+                        metric_label="evasion rate",
+                        id="red-card",
+                    )
                     yield TeamCard(
-                        team="BLUE TEAM — DEFENDER", icon="🛡", color=theme.CYAN,
+                        team="BLUE TEAM — DEFENDER",
+                        icon="🛡",
+                        color=theme.CYAN,
                         detail="WintermuteMalwareDetector · TRADES β=1.0 · EWC λ=0.4",
-                        metric="—", metric_label="adversarial TPR", id="blue-card")
+                        metric="—",
+                        metric_label="adversarial TPR",
+                        id="blue-card",
+                    )
 
                 with Horizontal(id="adv-charts-row"):
                     with Vertical(id="adv-sparks"):
@@ -95,13 +106,13 @@ class AdversarialScreen(Vertical):
         self._confidence_data.append(metrics.get("mean_confidence", 0.5))
         try:
             self.query_one("#red-card", TeamCard).update_metric(f"{evasion:.1%}")
-            self.query_one("#blue-card", TeamCard).update_metric(
-                f"{metrics.get('adv_tpr', 0):.1%}")
+            self.query_one("#blue-card", TeamCard).update_metric(f"{metrics.get('adv_tpr', 0):.1%}")
             self.query_one("#evasion-spark", SparkChart).set_data(
-                self._evasion_data, f"↗ {evasion:.1%}")
+                self._evasion_data, f"↗ {evasion:.1%}"
+            )
             self.query_one("#conf-spark", SparkChart).set_data(
-                self._confidence_data,
-                f"↘ {metrics.get('mean_confidence', 0):.3f}")
+                self._confidence_data, f"↘ {metrics.get('mean_confidence', 0):.3f}"
+            )
             self.query_one("#adv-cycles", CycleTable).add_cycle(cycle, metrics)
         except Exception:
             pass
@@ -116,9 +127,7 @@ class AdversarialScreen(Vertical):
 
     async def _do_adversarial(self, values: dict) -> None:
         """Run adversarial training cycles in background."""
-        self.app.call_from_thread(
-            self.app._log, "Adversarial training started", "ok"
-        )
+        self.app.call_from_thread(self.app._log, "Adversarial training started", "ok")
         # Note: actual orchestrator integration requires model + data loading
         # which is handled by the CLI. For now, the worker structure is in place.
         # Full integration will wire to AdversarialOrchestrator.run_cycle()
@@ -140,7 +149,6 @@ class AdversarialScreen(Vertical):
 
 
 class TeamCard(Static):
-
     DEFAULT_CSS = f"""
     TeamCard {{
         width: 1fr;
@@ -151,9 +159,16 @@ class TeamCard(Static):
     }}
     """
 
-    def __init__(self, team: str, icon: str, color: str,
-                 detail: str, metric: str, metric_label: str,
-                 **kwargs) -> None:
+    def __init__(
+        self,
+        team: str,
+        icon: str,
+        color: str,
+        detail: str,
+        metric: str,
+        metric_label: str,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._team = team
         self._icon = icon
@@ -163,10 +178,12 @@ class TeamCard(Static):
         self._metric_label = metric_label
 
     def render(self) -> str:
-        return (f"  {self._icon}  [bold {self._color}]{self._team}[/]\n"
-                f"     [{theme.TEXT_MUTED}]{self._detail}[/]\n"
-                f"     [bold {self._color}]{self._metric}[/] "
-                f"[{theme.TEXT_MUTED}]{self._metric_label}[/]")
+        return (
+            f"  {self._icon}  [bold {self._color}]{self._team}[/]\n"
+            f"     [{theme.TEXT_MUTED}]{self._detail}[/]\n"
+            f"     [bold {self._color}]{self._metric}[/] "
+            f"[{theme.TEXT_MUTED}]{self._metric_label}[/]"
+        )
 
     def update_metric(self, value: str) -> None:
         self._metric = value
@@ -174,7 +191,6 @@ class TeamCard(Static):
 
 
 class SparkChart(Vertical):
-
     DEFAULT_CSS = f"""
     SparkChart {{
         height: 1fr;
@@ -192,21 +208,21 @@ class SparkChart(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]—[/]",
-            id=f"{self.id}-lbl")
+            f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]—[/]", id=f"{self.id}-lbl"
+        )
         yield Sparkline([], id=f"{self.id}-data")
 
     def set_data(self, data: list[float], current: str) -> None:
         try:
             self.query_one(f"#{self.id}-lbl", Static).update(
-                f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]{current}[/]")
+                f"[{theme.TEXT_MUTED}]{self._label}[/]  [{self._color}]{current}[/]"
+            )
             self.query_one(f"#{self.id}-data", Sparkline).data = data
         except Exception:
             pass
 
 
 class SidebarStats(Static):
-
     DEFAULT_CSS = f"""
     SidebarStats {{
         background: {theme.BG_CARD};
@@ -224,11 +240,11 @@ class SidebarStats(Static):
             f"  [{theme.TEXT_MUTED}]PPO Loss[/]     [{theme.AMBER}]—[/]\n"
             f"  [{theme.TEXT_MUTED}]Clean TPR[/]    [{theme.GREEN}]target ≥0.92[/]\n"
             f"  [{theme.TEXT_MUTED}]Adv. TPR[/]     [{theme.CYAN}]target ≥0.80[/]\n"
-            f"  [{theme.TEXT_MUTED}]Evasion[/]      [{theme.RED}]target 0.20-0.50[/]\n")
+            f"  [{theme.TEXT_MUTED}]Evasion[/]      [{theme.RED}]target 0.20-0.50[/]\n"
+        )
 
 
 class CycleTable(DataTable):
-
     DEFAULT_CSS = f"""
     CycleTable {{
         background: {theme.BG_CARD};
@@ -237,13 +253,16 @@ class CycleTable(DataTable):
     """
 
     def on_mount(self) -> None:
-        self.add_columns("Cycle", "Evasion", "PPO Loss",
-                         "Adv TPR", "NFR", "Vault", "Time")
+        self.add_columns("Cycle", "Evasion", "PPO Loss", "Adv TPR", "NFR", "Vault", "Time")
 
     def add_cycle(self, cycle: int, m: dict) -> None:
         self.add_row(
-            str(cycle), f"{m.get('evasion_rate', 0):.1%}",
-            f"{m.get('ppo_loss', 0):.3f}", f"{m.get('adv_tpr', 0):.1%}",
-            f"{m.get('nfr', 0):.3f}", str(m.get("vault_size", 0)),
-            m.get("time", "—"))
+            str(cycle),
+            f"{m.get('evasion_rate', 0):.1%}",
+            f"{m.get('ppo_loss', 0):.3f}",
+            f"{m.get('adv_tpr', 0):.1%}",
+            f"{m.get('nfr', 0):.3f}",
+            str(m.get("vault_size", 0)),
+            m.get("time", "—"),
+        )
         self.scroll_end()

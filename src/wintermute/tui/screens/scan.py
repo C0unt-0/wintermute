@@ -28,7 +28,6 @@ SCAN_FIELDS = [
 
 
 class ScanScreen(Vertical):
-
     DEFAULT_CSS = """
     ScanScreen {
         height: 1fr;
@@ -93,7 +92,8 @@ class ScanScreen(Vertical):
         target = Path(path)
         if not target.exists():
             self.app.call_from_thread(
-                disasm.add_line, "", f"[ERROR] File not found: {path}", "error")
+                disasm.add_line, "", f"[ERROR] File not found: {path}", "error"
+            )
             return
 
         # 1. Extract opcodes
@@ -104,44 +104,47 @@ class ScanScreen(Vertical):
         else:
             try:
                 from wintermute.data.disassembler import HeadlessDisassembler
+
                 result = HeadlessDisassembler(str(target)).extract()
                 opcodes = result.sequence
             except ImportError:
-                self.app.call_from_thread(
-                    disasm.add_line, "", "r2pipe not available", "warn")
+                self.app.call_from_thread(disasm.add_line, "", "r2pipe not available", "warn")
                 return
 
         if not opcodes:
-            self.app.call_from_thread(
-                disasm.add_line, "", "No opcodes extracted", "warn")
+            self.app.call_from_thread(disasm.add_line, "", "No opcodes extracted", "warn")
             return
 
         # Show disassembly (cap display at 200 lines)
         for i, op in enumerate(opcodes[:200]):
             addr = f"0x{0x401000 + i * 4:08x}"
-            style = ("call" if op.startswith("call") or op == "ret"
-                     else "jump" if op.startswith("j")
-                     else "nop" if op == "nop" else "normal")
+            style = (
+                "call"
+                if op.startswith("call") or op == "ret"
+                else "jump"
+                if op.startswith("j")
+                else "nop"
+                if op == "nop"
+                else "normal"
+            )
             self.app.call_from_thread(disasm.add_line, addr, op, style)
 
-        self.app.call_from_thread(
-            disasm.add_line, "", f"{len(opcodes)} instructions total", "info")
+        self.app.call_from_thread(disasm.add_line, "", f"{len(opcodes)} instructions total", "info")
 
         # 2. Load model + inference (same as cli.py scan command)
         import time
+
         self.app.call_from_thread(disasm.add_line, "", "Loading model...", "info")
 
         try:
             vocab_path = Path("data/processed/vocab.json")
             if not vocab_path.exists():
-                self.app.call_from_thread(
-                    disasm.add_line, "", "vocab.json not found", "error")
+                self.app.call_from_thread(disasm.add_line, "", "vocab.json not found", "error")
                 return
 
             with open(vocab_path) as f:
                 stoi = json.load(f)
-            vocab_sha = hashlib.sha256(
-                json.dumps(stoi, sort_keys=True).encode()).hexdigest()
+            vocab_sha = hashlib.sha256(json.dumps(stoi, sort_keys=True).encode()).hexdigest()
 
             detector = WintermuteMalwareDetector.load(
                 "malware_detector.safetensors",
@@ -167,6 +170,7 @@ class ScanScreen(Vertical):
             n_classes = probs.shape[1]
 
             from wintermute.cli import DEFAULT_FAMILIES
+
             family_probs = {}
             for i in range(n_classes):
                 name = DEFAULT_FAMILIES.get(str(i), f"Class {i}")
@@ -178,20 +182,21 @@ class ScanScreen(Vertical):
 
             self.app.call_from_thread(
                 verdict.show_result,
-                is_malicious, confidence, family, family_probs,
-                len(opcodes), inference_ms,
+                is_malicious,
+                confidence,
+                family,
+                family_probs,
+                len(opcodes),
+                inference_ms,
             )
 
         except FileNotFoundError as e:
-            self.app.call_from_thread(
-                disasm.add_line, "", f"Model not found: {e}", "error")
+            self.app.call_from_thread(disasm.add_line, "", f"Model not found: {e}", "error")
         except Exception as e:
-            self.app.call_from_thread(
-                disasm.add_line, "", f"Inference error: {e}", "error")
+            self.app.call_from_thread(disasm.add_line, "", f"Inference error: {e}", "error")
 
 
 class DisassemblyLog(RichLog):
-
     DEFAULT_CSS = f"""
     DisassemblyLog {{
         background: {theme.BG_CARD};
@@ -201,9 +206,13 @@ class DisassemblyLog(RichLog):
     """
 
     _STYLES = {
-        "normal": theme.TEXT_BRIGHT, "call": theme.PURPLE,
-        "jump": theme.GREEN, "nop": theme.TEXT_MUTED,
-        "info": theme.CYAN, "warn": theme.AMBER, "error": theme.RED,
+        "normal": theme.TEXT_BRIGHT,
+        "call": theme.PURPLE,
+        "jump": theme.GREEN,
+        "nop": theme.TEXT_MUTED,
+        "info": theme.CYAN,
+        "warn": theme.AMBER,
+        "error": theme.RED,
     }
 
     def add_header(self, text: str) -> None:
@@ -212,8 +221,7 @@ class DisassemblyLog(RichLog):
         self.write(line)
         self.write(Text(f"  {'─' * 50}", style=theme.BORDER))
 
-    def add_line(self, addr: str, instruction: str,
-                 style: str = "normal") -> None:
+    def add_line(self, addr: str, instruction: str, style: str = "normal") -> None:
         color = self._STYLES.get(style, theme.TEXT)
         line = Text()
         if addr:
@@ -225,7 +233,6 @@ class DisassemblyLog(RichLog):
 
 
 class VerdictPanel(Vertical):
-
     DEFAULT_CSS = f"""
     VerdictPanel {{
         background: {theme.BG_CARD};
@@ -241,22 +248,27 @@ class VerdictPanel(Vertical):
         yield Static("", id="verdict-detail")
 
     def reset(self) -> None:
-        self.query_one("#verdict-label", Static).update(
-            f"[{theme.TEXT_MUTED}]Analyzing...[/]")
+        self.query_one("#verdict-label", Static).update(f"[{theme.TEXT_MUTED}]Analyzing...[/]")
         self.query_one("#conf-mal", ConfidenceBar).update_value(0.0)
         self.query_one("#conf-safe", ConfidenceBar).update_value(0.0)
         self.query_one("#verdict-detail", Static).update("")
 
-    def show_result(self, is_malicious: bool, confidence: float,
-                    family: str, family_probs: dict,
-                    n_instructions: int, inference_ms: float) -> None:
+    def show_result(
+        self,
+        is_malicious: bool,
+        confidence: float,
+        family: str,
+        family_probs: dict,
+        n_instructions: int,
+        inference_ms: float,
+    ) -> None:
         icon = "🚨" if is_malicious else "✅"
         label = "MALICIOUS" if is_malicious else "SAFE"
         color = theme.RED if is_malicious else theme.GREEN
 
         self.query_one("#verdict-label", Static).update(
-            f"\n  {icon}  [bold {color}]{label}[/]\n"
-            f"  [{theme.TEXT_MUTED}]family: {family}[/]\n")
+            f"\n  {icon}  [bold {color}]{label}[/]\n  [{theme.TEXT_MUTED}]family: {family}[/]\n"
+        )
 
         mal_conf = confidence if is_malicious else 1.0 - confidence
         self.query_one("#conf-mal", ConfidenceBar).update_value(mal_conf)
@@ -276,5 +288,6 @@ class VerdictPanel(Vertical):
                 lines.append(
                     f"  [{theme.TEXT_MUTED}]{name:<16}[/] "
                     f"[{theme.PURPLE}]{bar}[/] "
-                    f"[{theme.TEXT_MUTED}]{prob * 100:.1f}%[/]")
+                    f"[{theme.TEXT_MUTED}]{prob * 100:.1f}%[/]"
+                )
         self.query_one("#verdict-detail", Static).update("\n".join(lines))

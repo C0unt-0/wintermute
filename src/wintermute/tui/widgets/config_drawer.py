@@ -115,7 +115,9 @@ class ConfigDrawer(Vertical):
             if isinstance(widget, Switch):
                 values[f.name] = "on" if widget.value else "off"
             elif isinstance(widget, Select):
-                values[f.name] = str(widget.value) if widget.value is not Select.BLANK else f.default
+                values[f.name] = (
+                    str(widget.value) if widget.value is not Select.BLANK else f.default
+                )
             elif isinstance(widget, Input):
                 values[f.name] = widget.value
             else:

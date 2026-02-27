@@ -14,13 +14,17 @@ from wintermute.tui.screens.vault import VaultScreen
 from wintermute.tui.widgets.status_bar import StatusBar
 from wintermute.tui.widgets.config_drawer import ConfigDrawer
 from wintermute.tui.events import (
-    EpochComplete, AdversarialCycleEnd, AdversarialEpisodeStep,
-    ActivityLogEntry, PipelineProgress, EvaluationComplete, VaultSampleAdded,
+    EpochComplete,
+    AdversarialCycleEnd,
+    AdversarialEpisodeStep,
+    ActivityLogEntry,
+    PipelineProgress,
+    EvaluationComplete,
+    VaultSampleAdded,
 )
 
 
 class WintermuteApp(App):
-
     TITLE = "WINTERMUTE v3.0"
     SUB_TITLE = "MLX-native static malware classifier"
     CSS = theme.STYLESHEET
@@ -87,24 +91,28 @@ class WintermuteApp(App):
             self.query_one(TrainingScreen).handle_epoch(event)
         except Exception:
             pass
-        self._log(f"Epoch {event.epoch} ({event.phase}) — "
-                  f"loss={event.loss:.4f} val_acc={event.val_acc:.1%}", "info")
+        self._log(
+            f"Epoch {event.epoch} ({event.phase}) — "
+            f"loss={event.loss:.4f} val_acc={event.val_acc:.1%}",
+            "info",
+        )
 
     def on_adversarial_cycle_end(self, event: AdversarialCycleEnd) -> None:
         try:
-            self.query_one(AdversarialScreen).update_cycle(
-                event.cycle, event.metrics)
+            self.query_one(AdversarialScreen).update_cycle(event.cycle, event.metrics)
         except Exception:
             pass
-        self._log(f"Adversarial cycle {event.cycle} — "
-                  f"evasion={event.metrics.get('evasion_rate', 0):.1%}", "info")
+        self._log(
+            f"Adversarial cycle {event.cycle} — evasion={event.metrics.get('evasion_rate', 0):.1%}",
+            "info",
+        )
 
     def on_adversarial_episode_step(self, event: AdversarialEpisodeStep) -> None:
         try:
             from wintermute.tui.widgets.action_log import ActionLog
+
             log = self.query_one("#adv-episode", ActionLog)
-            log.add_action(event.step, event.action, event.position,
-                           event.confidence, event.valid)
+            log.add_action(event.step, event.action, event.position, event.confidence, event.valid)
         except Exception:
             pass
 
