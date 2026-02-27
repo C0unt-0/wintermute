@@ -11,7 +11,7 @@ class VaultScreen(Horizontal):
 
     DEFAULT_CSS = """
     VaultScreen {
-        height: 100%;
+        height: 1fr;
         padding: 1;
     }
     #vault-table { width: 1fr; margin-right: 1; }
@@ -32,6 +32,21 @@ class VaultScreen(Horizontal):
             f"[bold {theme.TEXT_BRIGHT}]SAMPLE DETAIL[/]\n\n"
             f"  [{theme.TEXT_MUTED}]Row key:[/] [{theme.PURPLE}]{event.row_key}[/]\n"
             f"  [{theme.TEXT_MUTED}]Full detail requires vault data[/]")
+
+    def add_sample(self, sample: dict) -> None:
+        """Add a single vault sample from an adversarial training event."""
+        try:
+            table = self.query_one("#vault-table", VaultTable)
+            table.add_row(
+                sample.get("id", "?"),
+                sample.get("family", "?"),
+                f"{sample.get('confidence', 0):.2f}",
+                str(sample.get("mutations", 0)),
+                str(sample.get("cycle", 0)),
+                key=sample.get("id", None),
+            )
+        except Exception:
+            pass
 
     def load_entries(self, entries: list[dict]) -> None:
         table = self.query_one("#vault-table", VaultTable)

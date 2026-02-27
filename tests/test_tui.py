@@ -303,6 +303,43 @@ class TestScanScreen:
         assert hasattr(screen, "cancel_operation")
 
 
+class TestPipelineScreen:
+    def test_create(self):
+        from wintermute.tui.screens.pipeline import PipelineScreen
+        screen = PipelineScreen()
+        assert screen is not None
+
+    def test_operation_fields(self):
+        from wintermute.tui.screens.pipeline import BUILD_FIELDS, SYNTHETIC_FIELDS, PRETRAIN_FIELDS
+        assert any(f.name == "data_dir" for f in BUILD_FIELDS)
+        assert any(f.name == "n_samples" for f in SYNTHETIC_FIELDS)
+        assert any(f.name == "epochs" for f in PRETRAIN_FIELDS)
+
+    def test_has_cancel_operation(self):
+        from wintermute.tui.screens.pipeline import PipelineScreen
+        screen = PipelineScreen()
+        assert hasattr(screen, "cancel_operation")
+
+
+class TestDashboardWiring:
+    def test_has_update_family_chart(self):
+        from wintermute.tui.screens.dashboard import DashboardScreen
+        screen = DashboardScreen()
+        assert hasattr(screen, "update_family_chart")
+
+    def test_family_chart_accepts_data(self):
+        from wintermute.tui.screens.dashboard import FamilyChart
+        chart = FamilyChart()
+        assert hasattr(chart, "update_counts")
+
+
+class TestVaultWiring:
+    def test_has_add_sample(self):
+        from wintermute.tui.screens.vault import VaultScreen
+        screen = VaultScreen()
+        assert hasattr(screen, "add_sample")
+
+
 class TestCLI:
     def test_tui_in_help(self):
         from typer.testing import CliRunner

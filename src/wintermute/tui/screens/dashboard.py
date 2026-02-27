@@ -12,7 +12,7 @@ class DashboardScreen(Vertical):
 
     DEFAULT_CSS = """
     DashboardScreen {
-        height: 100%;
+        height: 1fr;
         padding: 1;
     }
     #dash-stats-row {
@@ -65,6 +65,13 @@ class DashboardScreen(Vertical):
         try:
             card = self.query_one(f"#{stat_id}", StatCard)
             card.update_value(value, subtitle)
+        except Exception:
+            pass
+
+    def update_family_chart(self, counts: dict[str, int]) -> None:
+        try:
+            chart = self.query_one("#dash-families", FamilyChart)
+            chart.update_counts(counts)
         except Exception:
             pass
 
@@ -123,6 +130,12 @@ class FamilyChart(Static):
         ("Obfuscator.ACY",0, theme.PURPLE),
         ("Gatak",         0, theme.AMBER),
     ]
+
+    def update_counts(self, counts: dict[str, int]) -> None:
+        for i, (name, _, color) in enumerate(self._FAMILIES):
+            if name in counts:
+                self._FAMILIES[i] = (name, counts[name], color)
+        self.refresh()
 
     def render(self) -> str:
         header = f"[bold {theme.TEXT_BRIGHT}]FAMILY DISTRIBUTION[/]\n"
