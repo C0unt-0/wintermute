@@ -57,3 +57,32 @@ class ActivityLogEntry(Message):
         super().__init__()
         self.text = text
         self.level = level
+
+
+class PipelineProgress(Message):
+    """Progress update from data pipeline operations."""
+
+    def __init__(self, operation: str, progress: float, message: str) -> None:
+        super().__init__()
+        self.operation = operation
+        self.progress = progress
+        self.message = message
+
+
+class EvaluationComplete(Message):
+    """Fired when training/evaluation produces final metrics."""
+
+    def __init__(self, f1: float, accuracy: float,
+                 family_counts: dict[str, int] | None = None) -> None:
+        super().__init__()
+        self.f1 = f1
+        self.accuracy = accuracy
+        self.family_counts = family_counts or {}
+
+
+class VaultSampleAdded(Message):
+    """Fired when adversarial training adds a sample to the vault."""
+
+    def __init__(self, sample: dict) -> None:
+        super().__init__()
+        self.sample = sample

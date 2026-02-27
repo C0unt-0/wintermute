@@ -35,6 +35,28 @@ class TestEvents:
         a = AdversarialCycleEnd(cycle=3, metrics={"evasion_rate": 0.3})
         assert a.cycle == 3
 
+    def test_pipeline_progress(self):
+        from wintermute.tui.events import PipelineProgress
+        e = PipelineProgress(operation="build", progress=0.5, message="Processing file 10/20")
+        assert e.operation == "build"
+        assert e.progress == 0.5
+        assert e.message == "Processing file 10/20"
+
+    def test_evaluation_complete(self):
+        from wintermute.tui.events import EvaluationComplete
+        counts = {"Ramnit": 10, "Lollipop": 5}
+        e = EvaluationComplete(f1=0.87, accuracy=0.91, family_counts=counts)
+        assert e.f1 == 0.87
+        assert e.accuracy == 0.91
+        assert e.family_counts["Ramnit"] == 10
+
+    def test_vault_sample_added(self):
+        from wintermute.tui.events import VaultSampleAdded
+        sample = {"id": "v001", "family": "Ramnit", "confidence": 0.72, "mutations": 3, "cycle": 1}
+        e = VaultSampleAdded(sample=sample)
+        assert e.sample["id"] == "v001"
+        assert e.sample["confidence"] == 0.72
+
 
 class TestWidgets:
     def test_stat_card_render(self):
