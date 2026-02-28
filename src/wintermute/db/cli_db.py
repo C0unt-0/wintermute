@@ -53,9 +53,9 @@ def stats() -> None:
         # Embedding stats
         embedding_stats = EmbeddingRepo(session).coverage_stats()
 
-        typer.echo(f"\n{'='*50}")
+        typer.echo(f"\n{'=' * 50}")
         typer.echo("  DATABASE STATISTICS")
-        typer.echo(f"{'='*50}")
+        typer.echo(f"{'=' * 50}")
         typer.echo(f"\n  Samples: {total_samples}")
         if families:
             for fam, count in sorted(families.items()):
@@ -65,24 +65,20 @@ def stats() -> None:
             for src, count in sorted(sources.items()):
                 typer.echo(f"    {src}: {count}")
         typer.echo(f"\n  Scans: {scan_stats.get('total_scans', 0)}")
-        typer.echo(
-            f"  Mean confidence: {scan_stats.get('avg_confidence', 0):.2f}"
-        )
+        typer.echo(f"  Mean confidence: {scan_stats.get('avg_confidence', 0):.2f}")
         typer.echo("\n  Embeddings:")
         typer.echo(
             f"    Coverage: {embedding_stats.get('with_embedding', 0)}"
             f"/{embedding_stats.get('total_samples', 0)}"
         )
-        typer.echo(f"{'='*50}\n")
+        typer.echo(f"{'=' * 50}\n")
 
 
 @db_app.command()
 def samples(
     family: str = typer.Option(None, "--family", "-f", help="Filter by family"),
     source: str = typer.Option(None, "--source", "-s", help="Filter by source"),
-    min_opcodes: int = typer.Option(
-        None, "--min-opcodes", help="Minimum opcode count"
-    ),
+    min_opcodes: int = typer.Option(None, "--min-opcodes", help="Minimum opcode count"),
     limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
 ) -> None:
     """Query samples with filters."""
@@ -111,9 +107,7 @@ def samples(
 
 @db_app.command()
 def scans(
-    recent: int = typer.Option(
-        None, "--recent", "-r", help="Show N most recent scans"
-    ),
+    recent: int = typer.Option(None, "--recent", "-r", help="Show N most recent scans"),
     sha256: str = typer.Option(None, "--sha256", help="Filter by SHA256"),
     uncertain: float = typer.Option(
         None, "--uncertain", help="Show scans below confidence threshold"
@@ -153,9 +147,7 @@ def scans(
 
 @db_app.command()
 def models(
-    promote: str = typer.Option(
-        None, "--promote", help="Promote model ID to active"
-    ),
+    promote: str = typer.Option(None, "--promote", help="Promote model ID to active"),
 ) -> None:
     """List models or promote a version."""
     from wintermute.db.engine import create_db_engine, get_session
@@ -185,21 +177,13 @@ def models(
                 "staged": "[STAGED]",
                 "retired": "[RETIRED]",
             }.get(m.status, f"[{m.status}]")
-            f1 = (
-                f"f1={m.best_val_macro_f1:.4f}"
-                if m.best_val_macro_f1
-                else "f1=n/a"
-            )
-            typer.echo(
-                f"  {status_tag:<10} {m.version:<20} {f1}  {m.architecture}"
-            )
+            f1 = f"f1={m.best_val_macro_f1:.4f}" if m.best_val_macro_f1 else "f1=n/a"
+            typer.echo(f"  {status_tag:<10} {m.version:<20} {f1}  {m.architecture}")
 
 
 @db_app.command()
 def similar(
-    sha256: str = typer.Argument(
-        ..., help="SHA256 of sample to find neighbors for"
-    ),
+    sha256: str = typer.Argument(..., help="SHA256 of sample to find neighbors for"),
     k: int = typer.Option(5, "--k", "-k", help="Number of neighbors"),
 ) -> None:
     """Find similar samples by embedding (k-NN search)."""
@@ -230,17 +214,12 @@ def similar(
             return
         typer.echo(f"\n  Top {len(neighbors)} similar samples:\n")
         for n in neighbors:
-            typer.echo(
-                f"  {n['sha256'][:16]}..  {n['family']:<15} "
-                f"distance={n['distance']:.4f}"
-            )
+            typer.echo(f"  {n['sha256'][:16]}..  {n['family']:<15} distance={n['distance']:.4f}")
 
 
 @db_app.command()
 def vault(
-    unused: bool = typer.Option(
-        True, "--unused/--all", help="Show unused variants only"
-    ),
+    unused: bool = typer.Option(True, "--unused/--all", help="Show unused variants only"),
     limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
 ) -> None:
     """Show adversarial vault stats and variants."""
@@ -254,13 +233,10 @@ def vault(
         variants = repo.get_vault(limit=limit, unused_only=unused)
         report = repo.vulnerability_report()
 
-        typer.echo(f"\n{'='*50}")
+        typer.echo(f"\n{'=' * 50}")
         typer.echo("  ADVERSARIAL VAULT")
-        typer.echo(f"{'='*50}")
-        typer.echo(
-            f"\n  Variants: {len(variants)} "
-            f"{'(unused only)' if unused else '(all)'}"
-        )
+        typer.echo(f"{'=' * 50}")
+        typer.echo(f"\n  Variants: {len(variants)} {'(unused only)' if unused else '(all)'}")
 
         if report:
             typer.echo("\n  Vulnerability Report:")
@@ -270,7 +246,7 @@ def vault(
                     f"evasions={r['evasions']}  "
                     f"rate={r['evasion_rate']:.1%}"
                 )
-        typer.echo(f"{'='*50}\n")
+        typer.echo(f"{'=' * 50}\n")
 
 
 @db_app.command()
@@ -288,3 +264,16 @@ def embed() -> None:
         typer.echo(f"    With embeddings: {coverage.get('with_embedding', 0)}")
         pct = coverage.get("pct_covered", 0)
         typer.echo(f"    Coverage: {pct:.1f}%\n")
+
+
+@db_app.command()
+def migrate() -> None:
+    """Run database migrations (alembic upgrade head)."""
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config(str(Path(__file__).resolve().parents[3] / "alembic.ini"))
+    command.upgrade(alembic_cfg, "head")
+    typer.echo("Database migrations complete.")
