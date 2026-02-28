@@ -38,6 +38,10 @@ app.add_typer(data_app, name="data")
 from wintermute.data.etl.cli_etl import register_etl_commands
 register_etl_commands(data_app)
 
+# Register database commands
+from wintermute.db.cli_db import register_db_commands
+register_db_commands(app)
+
 
 # ---------------------------------------------------------------------------
 # Default family map (MS Malware Classification dataset)
