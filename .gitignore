@@ -29,5 +29,9 @@ mlruns/
 .vscode/
 .idea/
 
+# Web UI
+web/node_modules/
+web/dist/
+
 # Worktrees
 .worktrees/
