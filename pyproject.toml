@@ -1,6 +1,6 @@
 [project]
 name = "wintermute"
-version = "2.0.0"
+version = "4.0.0"
 description = "MLX-powered static malware classifier — treats assembly as NLP"
 readme = "README.md"
 license = {text = "MIT"}
