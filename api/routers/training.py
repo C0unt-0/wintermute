@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1/training", tags=["training"])
 
 # In-memory job store ---------------------------------------------------------
 _jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
 
 # -- helpers ------------------------------------------------------------------
@@ -31,19 +32,21 @@ def _run_training(job_id: str, config: TrainingRequest, loop: asyncio.AbstractEv
     def _callback(event: dict) -> None:
         asyncio.run_coroutine_threadsafe(ws_manager.broadcast(event), loop)
         # Mirror key fields into the job store for REST polling
-        _jobs[job_id].update(
-            {
-                "epoch": event.get("epoch", _jobs[job_id].get("epoch", 0)),
-                "phase": event.get("phase", _jobs[job_id].get("phase", "")),
-                "loss": event.get("loss", _jobs[job_id].get("loss", 0.0)),
-                "train_acc": event.get("train_acc", _jobs[job_id].get("train_acc", 0.0)),
-                "val_acc": event.get("val_acc", _jobs[job_id].get("val_acc", 0.0)),
-                "f1": event.get("f1", _jobs[job_id].get("f1", 0.0)),
-            }
-        )
+        with _jobs_lock:
+            _jobs[job_id].update(
+                {
+                    "epoch": event.get("epoch", _jobs[job_id].get("epoch", 0)),
+                    "phase": event.get("phase", _jobs[job_id].get("phase", "")),
+                    "loss": event.get("loss", _jobs[job_id].get("loss", 0.0)),
+                    "train_acc": event.get("train_acc", _jobs[job_id].get("train_acc", 0.0)),
+                    "val_acc": event.get("val_acc", _jobs[job_id].get("val_acc", 0.0)),
+                    "f1": event.get("f1", _jobs[job_id].get("f1", 0.0)),
+                }
+            )
 
     hook = TrainingHook(callback=_callback)
-    _jobs[job_id]["hook"] = hook
+    with _jobs_lock:
+        _jobs[job_id]["hook"] = hook
 
     try:
         from wintermute.engine.joint_trainer import JointTrainer
@@ -77,12 +80,15 @@ def _run_training(job_id: str, config: TrainingRequest, loop: asyncio.AbstractEv
         trainer.train()
 
         if hook.cancelled:
-            _jobs[job_id]["status"] = "CANCELLED"
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "CANCELLED"
         else:
-            _jobs[job_id]["status"] = "COMPLETE"
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "COMPLETED"
     except Exception as exc:
-        _jobs[job_id]["status"] = "FAILED"
-        _jobs[job_id]["error"] = str(exc)
+        with _jobs_lock:
+            _jobs[job_id]["status"] = "FAILED"
+            _jobs[job_id]["error"] = str(exc)
 
 
 # -- endpoints ----------------------------------------------------------------
@@ -92,7 +98,7 @@ def _run_training(job_id: str, config: TrainingRequest, loop: asyncio.AbstractEv
 async def start_training(config: TrainingRequest) -> JobResponse:
     """Start a training job in a background thread."""
     job_id = str(uuid.uuid4())
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     _jobs[job_id] = {
         "status": "RUNNING",
@@ -118,30 +124,32 @@ async def start_training(config: TrainingRequest) -> JobResponse:
 @router.get("/{job_id}/status", response_model=TrainingStatus)
 async def get_training_status(job_id: str) -> TrainingStatus:
     """Poll training job status."""
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
-    return TrainingStatus(
-        job_id=job_id,
-        status=job["status"],
-        epoch=job.get("epoch", 0),
-        phase=job.get("phase", ""),
-        loss=job.get("loss", 0.0),
-        train_acc=job.get("train_acc", 0.0),
-        val_acc=job.get("val_acc", 0.0),
-        f1=job.get("f1", 0.0),
-    )
+        return TrainingStatus(
+            job_id=job_id,
+            status=job["status"],
+            epoch=job.get("epoch", 0),
+            phase=job.get("phase", ""),
+            loss=job.get("loss", 0.0),
+            train_acc=job.get("train_acc", 0.0),
+            val_acc=job.get("val_acc", 0.0),
+            f1=job.get("f1", 0.0),
+        )
 
 
 @router.post("/{job_id}/cancel")
 async def cancel_training(job_id: str) -> dict:
     """Cancel a training job via hook.cancel()."""
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
-    hook = job.get("hook")
+        hook = job.get("hook")
     if hook is not None:
         hook.cancel()
 

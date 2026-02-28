@@ -11,9 +11,8 @@ src/wintermute/engine/worker.py.
 """
 
 import os
-import shutil
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
@@ -41,6 +40,8 @@ app.include_router(vault.router)
 UPLOAD_DIR = "/tmp/wintermute_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
+
 
 # ── Health Check ─────────────────────────────────────────────────────────────
 
@@ -63,11 +64,17 @@ async def analyze_file(file: UploadFile = File(...)):
     Celery worker. The response contains a **job_id** you can poll.
     """
     job_id = str(uuid.uuid4())
-    safe_filepath = os.path.join(UPLOAD_DIR, f"{job_id}_{file.filename}")
+    clean_name = PurePosixPath(file.filename or "unknown").name
+    safe_filepath = os.path.join(UPLOAD_DIR, f"{job_id}_{clean_name}")
+
+    # Read and validate upload size
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 100 MB.")
 
     # Persist the upload to disk so the worker can read it
     with open(safe_filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(contents)
 
     # Dispatch to the Celery background worker — returns immediately
     task = analyze_binary_task.apply_async(args=[safe_filepath], task_id=job_id)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import uuid
+from enum import Enum
 
 from fastapi import APIRouter, HTTPException
 
@@ -20,8 +21,13 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 
 # In-memory job store ---------------------------------------------------------
 _jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
-_VALID_OPERATIONS = {"build", "synthetic", "pretrain"}
+
+class PipelineOperation(str, Enum):
+    build = "build"
+    synthetic = "synthetic"
+    pretrain = "pretrain"
 
 
 # -- background runners -------------------------------------------------------
@@ -125,48 +131,47 @@ def _run_pipeline(
 
     def _callback(event: dict) -> None:
         asyncio.run_coroutine_threadsafe(ws_manager.broadcast(event), loop)
-        _jobs[job_id].update(
-            {
-                "operation": event.get("operation", _jobs[job_id].get("operation", "")),
-                "progress": event.get("progress", _jobs[job_id].get("progress", 0.0)),
-                "message": event.get("message", _jobs[job_id].get("message", "")),
-            }
-        )
+        with _jobs_lock:
+            _jobs[job_id].update(
+                {
+                    "operation": event.get("operation", _jobs[job_id].get("operation", "")),
+                    "progress": event.get("progress", _jobs[job_id].get("progress", 0.0)),
+                    "message": event.get("message", _jobs[job_id].get("message", "")),
+                }
+            )
 
     hook = PipelineHook(callback=_callback)
-    _jobs[job_id]["hook"] = hook
+    with _jobs_lock:
+        _jobs[job_id]["hook"] = hook
 
     try:
         runner = _RUNNERS[operation]
         runner(job_id, config, hook)
 
         if hook.cancelled:
-            _jobs[job_id]["status"] = "CANCELLED"
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "CANCELLED"
         else:
-            _jobs[job_id]["status"] = "COMPLETE"
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "COMPLETED"
     except Exception as exc:
-        _jobs[job_id]["status"] = "FAILED"
-        _jobs[job_id]["error"] = str(exc)
+        with _jobs_lock:
+            _jobs[job_id]["status"] = "FAILED"
+            _jobs[job_id]["error"] = str(exc)
 
 
 # -- endpoints ----------------------------------------------------------------
 
 
 @router.post("/{operation}", response_model=JobResponse, status_code=202)
-async def start_pipeline(operation: str, config: PipelineRequest) -> JobResponse:
+async def start_pipeline(operation: PipelineOperation, config: PipelineRequest) -> JobResponse:
     """Start a pipeline operation (build/synthetic/pretrain)."""
-    if operation not in _VALID_OPERATIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid operation '{operation}'. Must be one of: {', '.join(sorted(_VALID_OPERATIONS))}",
-        )
-
     job_id = str(uuid.uuid4())
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     _jobs[job_id] = {
         "status": "RUNNING",
-        "operation": operation,
+        "operation": operation.value,
         "progress": 0.0,
         "message": "",
         "error": None,
@@ -174,7 +179,7 @@ async def start_pipeline(operation: str, config: PipelineRequest) -> JobResponse
 
     thread = threading.Thread(
         target=_run_pipeline,
-        args=(job_id, operation, config, loop),
+        args=(job_id, operation.value, config, loop),
         daemon=True,
     )
     thread.start()
@@ -185,27 +190,29 @@ async def start_pipeline(operation: str, config: PipelineRequest) -> JobResponse
 @router.get("/{job_id}/status", response_model=PipelineStatus)
 async def get_pipeline_status(job_id: str) -> PipelineStatus:
     """Poll pipeline job status."""
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
-    return PipelineStatus(
-        job_id=job_id,
-        status=job["status"],
-        operation=job.get("operation", ""),
-        progress=job.get("progress", 0.0),
-        message=job.get("message", ""),
-    )
+        return PipelineStatus(
+            job_id=job_id,
+            status=job["status"],
+            operation=job.get("operation", ""),
+            progress=job.get("progress", 0.0),
+            message=job.get("message", ""),
+        )
 
 
 @router.post("/{job_id}/cancel")
 async def cancel_pipeline(job_id: str) -> dict:
     """Cancel a pipeline job via hook.cancel()."""
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
 
-    hook = job.get("hook")
+        hook = job.get("hook")
     if hook is not None:
         hook.cancel()
 
