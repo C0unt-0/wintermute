@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from wintermute.db.models import (
@@ -15,7 +15,6 @@ from wintermute.db.models import (
     Model,
     Sample,
     ScanResult,
-    TrainingRun,
 )
 
 
