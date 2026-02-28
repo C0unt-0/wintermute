@@ -144,7 +144,7 @@ class TestTrainerDBIntegration:
         assert run.best_epoch >= 1
         assert run.best_val_macro_f1 is not None
         assert run.best_val_macro_f1 > 0
-        assert run.best_val_loss is not None
+        assert run.best_val_loss is None
 
         model = db_session.execute(select(Model)).scalars().first()
         assert model is not None
@@ -159,6 +159,35 @@ class TestTrainerDBIntegration:
         assert f1 >= 0.0
         assert trainer._training_run_id is None
 
+    def test_trainer_cancelled_no_model(self, db_session: Session):
+        """Cancelled training should create TrainingRun but no Model row."""
+
+        class CancellingHook:
+            """Hook that cancels training after the first epoch."""
+
+            def __init__(self):
+                self.cancelled = False
+
+            def on_epoch(self, epoch, phase, loss, val_loss, f1, val_f1, elapsed):
+                self.cancelled = True
+
+            def on_log(self, msg, level):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            trainer = _make_trainer(tmp, db_session=db_session, epochs_b=2)
+            trainer._hook = CancellingHook()
+            trainer.train()
+
+        runs = db_session.execute(select(TrainingRun)).scalars().all()
+        models = db_session.execute(select(Model)).scalars().all()
+
+        assert len(runs) == 1
+        assert len(models) == 0, "No Model should be created for a cancelled run"
+
+        run = runs[0]
+        assert run.completed_at is not None, "completed_at should be set even for cancelled runs"
+
     def test_trainer_db_error_no_crash(self):
         """Mock db_session to raise on add/flush: training should still complete."""
         mock_session = MagicMock()
@@ -171,3 +200,4 @@ class TestTrainerDBIntegration:
 
         # Training should still succeed despite DB errors
         assert f1 >= 0.0
+        assert trainer._training_run_id is None

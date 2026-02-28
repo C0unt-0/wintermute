@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import pickle
 import time
 from pathlib import Path
@@ -33,6 +34,8 @@ from omegaconf import OmegaConf
 
 from wintermute.engine.metrics import compute_macro_f1
 from wintermute.models.fusion import DetectorConfig, WintermuteMalwareDetector
+
+_db_log = logging.getLogger("wintermute.db")
 
 
 class JointTrainer:
@@ -486,9 +489,7 @@ class JointTrainer:
                 self._db_session.flush()
                 self._training_run_id = run.id
             except Exception:
-                import logging
-
-                logging.getLogger("wintermute.db").debug(
+                _db_log.warning(
                     "Failed to create TrainingRun row", exc_info=True
                 )
 
@@ -513,6 +514,7 @@ class JointTrainer:
                     self._hook.on_epoch(ep, phase, loss, 0.0, f1, f1, elapsed)
                     if self._hook.cancelled:
                         self._hook.on_log(f"Training cancelled at epoch {ep}", "warn")
+                        self._finalize_training_run(best_f1, cancelled=True)
                         return best_f1
                 if f1 > best_f1:
                     best_f1 = f1
@@ -526,60 +528,72 @@ class JointTrainer:
                             run = self._db_session.get(TrainingRun, self._training_run_id)
                             if run:
                                 run.best_epoch = ep
-                                run.best_val_loss = loss
                                 run.best_val_macro_f1 = f1
                                 run.best_val_accuracy = f1  # approximate
                                 run.epochs_completed = ep
                                 self._db_session.flush()
                         except Exception:
-                            import logging
-
-                            logging.getLogger("wintermute.db").debug(
+                            _db_log.warning(
                                 "Failed to update TrainingRun row", exc_info=True
                             )
 
-        # --- DB: create Model row and finalize TrainingRun ---
-        if self._db_session is not None and self._training_run_id is not None:
-            try:
-                from datetime import datetime, timezone
-
-                from wintermute.db.models import Model, TrainingRun
-
-                run = self._db_session.get(TrainingRun, self._training_run_id)
-                if run:
-                    run.completed_at = datetime.now(timezone.utc)
-                    run.epochs_completed = self.cfg.epochs_phase_a + self.cfg.epochs_phase_b
-
-                model_row = Model(
-                    version=f"v-{self._training_run_id[:8]}",
-                    architecture="WintermuteMalwareDetector",
-                    weights_path=str(self.cfg.save_path),
-                    manifest_path=str(self.cfg.manifest_path),
-                    vocab_size=len(self.vocab),
-                    num_classes=self.model_config.num_classes,
-                    dims=self.model_config.dims,
-                    max_seq_length=self.model_config.max_seq_length,
-                    vocab_sha256=self.vocab_sha,
-                    training_run_id=self._training_run_id,
-                    pretrained_from=self.pretrained_path,
-                    best_val_macro_f1=best_f1,
-                    status="staged",
-                )
-                self._db_session.add(model_row)
-                self._db_session.flush()
-
-                # Link the training run back to the model
-                if run:
-                    run.model_id = model_row.id
-                    self._db_session.flush()
-            except Exception:
-                import logging
-
-                logging.getLogger("wintermute.db").debug(
-                    "Failed to create Model row", exc_info=True
-                )
+        self._finalize_training_run(best_f1, cancelled=False)
 
         print(f"\nDone. Best macro F1: {best_f1:.4f}")
         if self._hook:
             self._hook.on_log(f"Training complete — best F1: {best_f1:.4f}", "ok")
         return best_f1
+
+    # ------------------------------------------------------------------
+    # DB finalisation helper
+    # ------------------------------------------------------------------
+    def _finalize_training_run(self, best_f1: float, *, cancelled: bool = False) -> None:
+        """Create Model row and finalize TrainingRun in the database.
+
+        Parameters
+        ----------
+        best_f1 : float
+            Best macro F1 achieved during training.
+        cancelled : bool
+            If True, the run was cancelled early — skip Model creation.
+        """
+        if self._db_session is None or self._training_run_id is None:
+            return
+
+        try:
+            from datetime import datetime, timezone
+
+            from wintermute.db.models import Model, TrainingRun
+
+            run = self._db_session.get(TrainingRun, self._training_run_id)
+            if run:
+                run.completed_at = datetime.now(timezone.utc)
+                run.epochs_completed = self.cfg.epochs_phase_a + self.cfg.epochs_phase_b
+
+                if not cancelled:
+                    model_row = Model(
+                        version=f"v-{self._training_run_id[:8]}",
+                        architecture="WintermuteMalwareDetector",
+                        weights_path=str(self.cfg.save_path),
+                        manifest_path=str(self.cfg.manifest_path),
+                        vocab_size=len(self.vocab),
+                        num_classes=self.model_config.num_classes,
+                        dims=self.model_config.dims,
+                        max_seq_length=self.model_config.max_seq_length,
+                        vocab_sha256=self.vocab_sha,
+                        training_run_id=self._training_run_id,
+                        pretrained_from=self.pretrained_path,
+                        best_val_macro_f1=best_f1,
+                        status="staged",
+                    )
+                    self._db_session.add(model_row)
+                    self._db_session.flush()
+
+                    # Link the training run back to the model
+                    run.model_id = model_row.id
+
+                self._db_session.flush()
+        except Exception:
+            _db_log.warning(
+                "Failed to finalize training run", exc_info=True
+            )
