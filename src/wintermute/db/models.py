@@ -53,9 +53,9 @@ class Sample(Base):
     __tablename__ = "samples"
 
     sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
-    family: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    label: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    family: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    label: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
     opcode_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     file_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -64,8 +64,12 @@ class Sample(Base):
         String(36), ForeignKey("etl_runs.id"), nullable=True
     )
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
     __table_args__ = (
         Index("ix_samples_family", "family"),
@@ -84,21 +88,23 @@ class ScanResult(Base):
     __tablename__ = "scan_results"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
-    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    predicted_family: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    predicted_label: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    probabilities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    predicted_family: Mapped[str] = mapped_column(String(100), nullable=False)
+    predicted_label: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    probabilities: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     model_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("models.id"), nullable=True
     )
-    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    nearest_neighbors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    model_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    nearest_neighbors: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     execution_time_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
-    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    scanned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
 
     __table_args__ = (
         Index("ix_scan_results_sha256", "sha256"),
@@ -121,15 +127,19 @@ class Model(Base):
     architecture: Mapped[str] = mapped_column(
         String(100), default="WintermuteMalwareDetector"
     )
-    weights_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    manifest_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    weights_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    manifest_path: Mapped[str] = mapped_column(
+        String(500), nullable=False, default=""
+    )
     onnx_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    vocab_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    num_classes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    dims: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vocab_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    num_classes: Mapped[int] = mapped_column(Integer, nullable=False)
+    dims: Mapped[int] = mapped_column(Integer, nullable=False)
     max_seq_length: Mapped[int] = mapped_column(Integer, default=2048)
     vocab_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Circular FK: insert TrainingRun first (model_id=None),
+    # then Model with training_run_id, then update TrainingRun.model_id.
     training_run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("training_runs.id"), nullable=True
     )
@@ -141,9 +151,15 @@ class Model(Base):
     best_val_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     best_val_auc_roc: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="staged")
-    promoted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    promoted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
 
     __table_args__ = (
         Index("ix_models_status", "status"),
@@ -181,8 +197,12 @@ class TrainingRun(Base):
     vault_samples_mixed: Mapped[int] = mapped_column(Integer, default=0)
     trades_beta_final: Mapped[float | None] = mapped_column(Float, nullable=True)
     ewc_lambda: Mapped[float | None] = mapped_column(Float, nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
@@ -206,8 +226,12 @@ class AdversarialCycle(Base):
     vault_samples_used: Mapped[int] = mapped_column(Integer, default=0)
     defender_f1_before: Mapped[float | None] = mapped_column(Float, nullable=True)
     defender_f1_after: Mapped[float | None] = mapped_column(Float, nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     variants: Mapped[list[AdversarialVariant]] = relationship(
         "AdversarialVariant", back_populates="cycle"
@@ -222,25 +246,29 @@ class AdversarialVariant(Base):
     __tablename__ = "adversarial_variants"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
-    parent_sha256: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("samples.sha256"), nullable=True
+    parent_sha256: Mapped[str] = mapped_column(
+        String(64), ForeignKey("samples.sha256"), nullable=False
     )
-    cycle_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("adversarial_cycles.id"), nullable=True
+    cycle_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("adversarial_cycles.id"), nullable=False
     )
-    mutated_token_ids: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    mutated_token_ids: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     mutations_applied: Mapped[list | None] = mapped_column(JSON, default=list)
-    mutation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    modification_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    confidence_before: Mapped[float | None] = mapped_column(Float, nullable=True)
-    confidence_after: Mapped[float | None] = mapped_column(Float, nullable=True)
-    confidence_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mutation_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    modification_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_before: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_after: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_delta: Mapped[float] = mapped_column(Float, nullable=False)
     achieved_evasion: Mapped[bool] = mapped_column(Boolean, default=False)
     used_in_retraining: Mapped[bool] = mapped_column(Boolean, default=False)
     retraining_run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("training_runs.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
 
     cycle: Mapped[AdversarialCycle | None] = relationship(
         "AdversarialCycle", back_populates="variants"
@@ -268,8 +296,12 @@ class EtlRun(Base):
     vocab_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     num_classes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     sources: Mapped[list[EtlRunSource]] = relationship(
@@ -286,12 +318,18 @@ class EtlRunSource(Base):
     etl_run_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("etl_runs.id", ondelete="CASCADE")
     )
-    source_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    samples_extracted: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    samples_skipped: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    samples_failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    families_found: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    errors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    samples_extracted: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    samples_skipped: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    samples_failed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    families_found: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
+    errors: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     etl_run: Mapped[EtlRun] = relationship("EtlRun", back_populates="sources")

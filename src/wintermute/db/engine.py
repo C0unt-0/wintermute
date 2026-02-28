@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,8 @@ import yaml
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+
+logger = logging.getLogger("wintermute.db")
 
 # ---------------------------------------------------------------------------
 # Module-level globals
@@ -75,6 +78,7 @@ def create_db_engine(url: str | None = None, echo: bool = False, **kwargs: Any) 
     global _engine, _SessionFactory
 
     resolved_url = _resolve_url(url)
+    logger.info("Creating database engine: %s", resolved_url)
 
     connect_args: dict[str, Any] = {}
     engine_kwargs: dict[str, Any] = {"echo": echo, **kwargs}
@@ -118,6 +122,7 @@ def init_db(engine: Engine | None = None) -> None:
         raise RuntimeError("No engine available. Call create_db_engine() first.")
 
     url_str = str(eng.url)
+    logger.info("Creating all tables (engine: %s)", url_str)
     if url_str.startswith("postgresql"):
         with eng.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

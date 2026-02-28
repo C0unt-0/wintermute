@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from wintermute.db.models import (
@@ -18,10 +20,18 @@ from wintermute.db.models import (
 )
 
 
+def _set_sqlite_pragmas(dbapi_conn, _connection_record):
+    """Enable foreign-key enforcement for SQLite (needed for cascade tests)."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON;")
+    cursor.close()
+
+
 @pytest.fixture()
 def db_session():
     """Yield an in-memory SQLite session with all tables created."""
     engine = create_engine("sqlite:///:memory:")
+    event.listen(engine, "connect", _set_sqlite_pragmas)
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
@@ -62,6 +72,30 @@ def test_sample_crud(db_session: Session):
     assert result.metadata_ == {"tags": ["packed", "upx"]}
     assert result.created_at is not None
     assert result.updated_at is not None
+
+
+def test_sample_updated_at_auto_update(db_session: Session):
+    """Verify that updated_at changes when a Sample is modified."""
+    sample = Sample(
+        sha256="u" * 64,
+        family="Ramnit",
+        label=1,
+        source="malware_bazaar",
+    )
+    db_session.add(sample)
+    db_session.commit()
+
+    original_updated_at = sample.updated_at
+
+    # Small delay so the timestamp can differ
+    time.sleep(0.05)
+
+    sample.family = "Gatak"
+    db_session.commit()
+
+    db_session.refresh(sample)
+    assert sample.family == "Gatak"
+    assert sample.updated_at >= original_updated_at
 
 
 def test_scan_result_crud(db_session: Session):
@@ -161,9 +195,32 @@ def test_etl_run_with_sources(db_session: Session):
         assert src.etl_run_id == result.id
 
 
+def test_etl_run_cascade_delete(db_session: Session):
+    """Delete an EtlRun and verify its EtlRunSources are also deleted."""
+    etl_run = EtlRun(
+        config_hash="e" * 64,
+        config={"sources": ["test_source"]},
+    )
+    source1 = EtlRunSource(source_name="source_alpha")
+    source2 = EtlRunSource(source_name="source_beta")
+    etl_run.sources.append(source1)
+    etl_run.sources.append(source2)
+
+    db_session.add(etl_run)
+    db_session.commit()
+
+    assert db_session.query(EtlRunSource).count() == 2
+
+    db_session.delete(etl_run)
+    db_session.commit()
+
+    assert db_session.query(EtlRun).count() == 0
+    assert db_session.query(EtlRunSource).count() == 0
+
+
 def test_adversarial_variant(db_session: Session):
     """Create Sample + AdversarialCycle + AdversarialVariant and verify relationships."""
-    sample = Sample(sha256="d" * 64, family="Ramnit", label=1)
+    sample = Sample(sha256="d" * 64, family="Ramnit", label=1, source="malware_bazaar")
     db_session.add(sample)
     db_session.flush()
 
