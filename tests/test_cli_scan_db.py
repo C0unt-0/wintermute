@@ -72,6 +72,7 @@ def _persist_scan(
 
         if get_engine() is not None:
             file_sha = hashlib.sha256(target_path.read_bytes()).hexdigest()
+            file_size = target_path.stat().st_size
 
             with get_session() as session:
                 SampleRepo(session).upsert(
@@ -80,15 +81,14 @@ def _persist_scan(
                     label=pred,
                     source="cli_scan",
                     file_type=target_path.suffix.lstrip(".").upper() or "UNKNOWN",
-                    file_size_bytes=target_path.stat().st_size,
+                    file_size_bytes=file_size,
                     opcode_count=len(opcodes),
                 )
-                session.flush()
 
                 ScanRepo(session).record(
                     sha256=file_sha,
                     filename=target_path.name,
-                    file_size_bytes=target_path.stat().st_size,
+                    file_size_bytes=file_size,
                     predicted_family=label,
                     predicted_label=pred,
                     confidence=confidence,
@@ -96,7 +96,10 @@ def _persist_scan(
                     model_version=manifest,
                 )
     except Exception:
-        pass  # DB persistence is best-effort; never crash the scan
+        import logging
+        logging.getLogger("wintermute.db").debug(
+            "Scan DB persistence failed (best-effort)", exc_info=True
+        )
 
 
 # ==================================================================

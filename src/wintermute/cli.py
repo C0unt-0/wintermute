@@ -125,6 +125,7 @@ def scan(
 
         if get_engine() is not None:
             file_sha = hashlib.sha256(target_path.read_bytes()).hexdigest()
+            file_size = target_path.stat().st_size
             probs_dict = {
                 str(i): float(probs[0, i].item()) for i in range(probs.shape[1])
             }
@@ -137,16 +138,15 @@ def scan(
                     label=pred,
                     source="cli_scan",
                     file_type=target_path.suffix.lstrip(".").upper() or "UNKNOWN",
-                    file_size_bytes=target_path.stat().st_size,
+                    file_size_bytes=file_size,
                     opcode_count=len(opcodes),
                 )
-                session.flush()
 
                 # Record the scan result
                 ScanRepo(session).record(
                     sha256=file_sha,
                     filename=target_path.name,
-                    file_size_bytes=target_path.stat().st_size,
+                    file_size_bytes=file_size,
                     predicted_family=label,
                     predicted_label=pred,
                     confidence=float(probs[0, pred].item()),
@@ -154,7 +154,10 @@ def scan(
                     model_version=manifest,
                 )
     except Exception:
-        pass  # DB persistence is best-effort; never crash the scan
+        import logging
+        logging.getLogger("wintermute.db").debug(
+            "Scan DB persistence failed (best-effort)", exc_info=True
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
