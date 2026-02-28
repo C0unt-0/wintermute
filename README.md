@@ -18,7 +18,7 @@ Everything runs natively on Apple Silicon through [MLX](https://github.com/ml-ex
 - [Architecture](#-architecture)
 - [Quick Start](#-quick-start)
 - [Installation](#-installation)
-- [Terminal UI](#-terminal-ui)
+- [Web UI](#-web-ui)
 - [CLI Reference](#-cli-reference)
 - [DVC Pipeline](#-dvc-pipeline)
 - [Microsoft Malware Families](#-microsoft-malware-families-9-class)
@@ -149,9 +149,10 @@ wintermute train --epochs 20
 # Scan a file
 wintermute scan target.exe
 
-# Launch the terminal UI
-pip install -e ".[tui]"
-wintermute tui
+# Launch the web UI
+pip install -e ".[api]"
+cd web && npm install && npm run dev    # Frontend on http://localhost:5173
+uvicorn api.main:app --reload           # Backend on http://localhost:8000
 ```
 
 > [!IMPORTANT]
@@ -165,29 +166,36 @@ wintermute tui
 pip install -e .                 # Base: MLX, tokenizer, CLI
 pip install -e ".[dev]"          # + pytest, ruff
 pip install -e ".[mlops]"        # + MLflow tracking
-pip install -e ".[tui]"          # + Textual terminal UI
 pip install -e ".[adversarial]"  # + Gymnasium, LIEF
-pip install -e ".[api]"          # + FastAPI, Celery, r2pipe
+pip install -e ".[api]"          # + FastAPI, Celery, r2pipe (Web UI backend)
 pip install -e ".[all]"          # Everything
 ```
 
 ---
 
-## 🖥️ Terminal UI
+## 🖥️ Web UI
 
-A 5-tab Textual interface for real-time monitoring. Launch with `wintermute tui`.
+A 6-tab React dashboard for real-time monitoring and control, styled with a **Terminal Noir** dark theme.
 
-> _Screenshot: run `wintermute tui` to see the dashboard_
+```bash
+# Development (two terminals)
+cd web && npm install && npm run dev    # Vite dev server → http://localhost:5173
+uvicorn api.main:app --reload           # FastAPI backend → http://localhost:8000
 
-| Key | Tab             | What it shows                                                                  |
-| :-- | :-------------- | :----------------------------------------------------------------------------- |
-| `1` | **Dashboard**   | Model stats, architecture panel, 9-family distribution chart, activity log     |
-| `2` | **Scan**        | File path input → live disassembly log + verdict with confidence bars          |
-| `3` | **Training**    | Phase A/B indicator, loss/accuracy sparklines, epoch table                     |
-| `4` | **Adversarial** | Red vs Blue team cards, evasion rate charts, episode action log, cycle metrics |
-| `5` | **Vault**       | Adversarial sample browser with mutation diff viewer                           |
+# Production (Docker)
+docker compose up --build               # Web UI + API → http://localhost:8000
+```
 
-The TUI connects to training and adversarial loops via callback hooks (`wintermute.tui.hooks`). `TrainingHook` emits `EpochComplete` messages; `AdversarialHook` emits `AdversarialEpisodeStep` and `AdversarialCycleEnd` messages. Press `q` to quit.
+| Tab             | What it shows                                                                  |
+| :-------------- | :----------------------------------------------------------------------------- |
+| **Dashboard**   | Model stats, 9-family distribution chart (Recharts), live activity log         |
+| **Scan**        | Drag-and-drop file upload → async analysis → verdict with confidence bars     |
+| **Training**    | Config panel, Phase A/B epoch table, loss/accuracy sparklines, live WebSocket  |
+| **Adversarial** | Red vs Blue team cards, episode action log, cycle metrics, evasion sparklines  |
+| **Pipeline**    | Operation selector (build/synthetic/pretrain), progress bar, log output        |
+| **Vault**       | Adversarial sample table with mutation diff viewer                             |
+
+The web UI receives real-time updates via WebSocket (`/api/v1/ws`). The engine emits transport-agnostic events (`engine/events.py`) through callback hooks (`engine/hooks.py`), which the API routers bridge to WebSocket broadcasts.
 
 ---
 
@@ -218,8 +226,9 @@ wintermute data build --data-dir data             # Tokenize raw PEs
 wintermute data synthetic --n-samples 500         # Synthetic test data
 wintermute data download --families "AgentTesla,Emotet" --limit 50
 
-# ── TUI ──
-wintermute tui
+# ── Web UI ──
+cd web && npm run dev                            # Frontend dev server
+uvicorn api.main:app --reload                    # Backend API server
 ```
 
 ---
@@ -304,7 +313,9 @@ wintermute/
 │   │   ├── trainer.py                  # Sequence-only training (legacy compat)
 │   │   ├── metrics.py                  # Accuracy, macro F1, confusion matrix
 │   │   ├── tracking.py                 # MLflow integration
-│   │   └── worker.py                   # Celery async worker (Phase 4)
+│   │   ├── worker.py                   # Celery async worker
+│   │   ├── events.py                   # Transport-agnostic event dataclasses
+│   │   └── hooks.py                    # Callback-based hooks (training, adversarial, pipeline)
 │   ├── adversarial/
 │   │   ├── orchestrator.py             # Red vs Blue training loop coordinator
 │   │   ├── ppo.py                      # PPO agent (MLX-native actor-critic)
@@ -317,25 +328,19 @@ wintermute/
 │   │   └── actions/
 │   │       ├── code_actions.py         # NOP, dead code, substitution, reg swap
 │   │       └── substitution_table.py   # Equivalent instruction mappings
-│   └── tui/
-│       ├── app.py                      # WintermuteApp — 5-tab Textual TUI
-│       ├── theme.py                    # Color tokens + TCSS stylesheet
-│       ├── events.py                   # Custom Textual messages
-│       ├── hooks.py                    # Training/adversarial → TUI bridge
-│       ├── screens/
-│       │   ├── dashboard.py            # System overview + architecture panel
-│       │   ├── scan.py                 # Live scan with real inference pipeline
-│       │   ├── training.py             # Phase A/B visualization
-│       │   ├── adversarial.py          # Red vs Blue (graceful if Phase 5 absent)
-│       │   └── vault.py                # Adversarial sample browser
-│       └── widgets/
-│           ├── stat_card.py            # Key metric display
-│           ├── confidence_bar.py       # Horizontal confidence bar
-│           ├── action_log.py           # Scrollable action/event log
-│           └── diff_view.py            # Before/after mutation diff
 ├── api/
-│   ├── main.py                         # FastAPI server (Phase 4, async)
-│   └── schemas.py                      # Pydantic request/response models
+│   ├── main.py                         # FastAPI server — scan, dashboard, training, adversarial, pipeline, vault + WebSocket
+│   ├── schemas.py                      # Pydantic request/response models
+│   ├── ws.py                           # WebSocket connection manager
+│   └── routers/                        # API route modules (dashboard, training, adversarial, pipeline, vault)
+├── web/                                # React + Vite + TypeScript + Tailwind frontend
+│   ├── src/
+│   │   ├── api/                        # API client + WebSocket client
+│   │   ├── hooks/                      # React hooks (useWebSocket, useJob, useDashboard)
+│   │   ├── components/                 # Shared UI (StatCard, ConfidenceBar, ConfigPanel, etc.)
+│   │   ├── pages/                      # Dashboard, Scan, Training, Adversarial, Pipeline, Vault
+│   │   └── styles/                     # Terminal Noir theme CSS
+│   └── vite.config.ts                  # Vite config with Tailwind + API proxy
 ├── tests/
 │   ├── test_cli.py                     # CLI command tests
 │   ├── test_fusion.py                  # WintermuteMalwareDetector tests
@@ -348,7 +353,10 @@ wintermute/
 │   ├── test_learning.py                # Learning convergence tests
 │   ├── test_robustness.py              # Model robustness tests
 │   ├── test_tracking.py                # MLflow tracking tests
-│   ├── test_tui.py                     # TUI widget + screen tests
+│   ├── test_engine_events.py           # Engine event dataclass tests
+│   ├── test_engine_hooks.py            # Engine hook tests
+│   ├── test_api_schemas.py             # API Pydantic schema tests
+│   ├── test_ws_manager.py              # WebSocket manager tests
 │   └── adversarial/
 │       ├── test_actions.py             # Code mutation action tests
 │       ├── test_environment.py         # Gymnasium env tests
@@ -373,9 +381,8 @@ wintermute/
 | **1**   | Package restructure, CLI, config management          | ✅ Complete                            |
 | **2**   | MLflow tracking, DVC pipelines                       | ✅ Complete                            |
 | **3**   | MalBERT + GAT + Fusion unified model, joint training | ✅ Complete                            |
-| **4**   | FastAPI server, Celery worker, Docker                | 🚧 API scaffolded, worker needs update |
+| **4**   | FastAPI server, Celery worker, Docker, Web UI        | ✅ Complete                            |
 | **5**   | Adversarial RL pipeline (PPO + TRADES + vault)       | ✅ Complete                            |
-| **TUI** | Textual terminal interface (5 screens)               | ✅ Complete                            |
 
 ---
 
