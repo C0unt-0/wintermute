@@ -1,0 +1,73 @@
+/* Terminal Noir — Wintermute Web UI Theme */
+/* Fonts are imported in index.css to satisfy CSS @import ordering rules */
+
+/* CSS Custom Properties */
+:root {
+  /* Backgrounds */
+  --bg-primary: #0a0e14;
+  --bg-surface: #111820;
+  --bg-elevated: #1a2332;
+  --border: #1e2d3d;
+
+  /* Text */
+  --text-primary: #e0e6ed;
+  --text-muted: #6b7d8e;
+
+  /* Semantic colors */
+  --safe: #00e88f;
+  --threat: #ff3b5c;
+  --data: #00d4ff;
+  --warn: #ffb224;
+  --purple: #b48ead;
+
+  /* Typography */
+  --font-code: 'JetBrains Mono', monospace;
+  --font-heading: 'Space Mono', monospace;
+  --font-body: 'Outfit', sans-serif;
+}
+
+/* Base styles */
+body {
+  margin: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle dot-grid background pattern on surfaces */
+.surface-grid {
+  background-image: radial-gradient(circle, rgba(30, 45, 61, 0.5) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Glow effects for accent elements */
+.glow-safe { box-shadow: 0 0 12px rgba(0, 232, 143, 0.15); }
+.glow-threat { box-shadow: 0 0 12px rgba(255, 59, 92, 0.15); }
+.glow-data { box-shadow: 0 0 12px rgba(0, 212, 255, 0.15); }
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Code/data text */
+.font-code {
+  font-family: var(--font-code);
+}
+
+/* Heading text */
+.font-heading {
+  font-family: var(--font-heading);
+}

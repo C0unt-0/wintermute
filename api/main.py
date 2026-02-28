@@ -11,29 +11,40 @@ src/wintermute/engine/worker.py.
 """
 
 import os
-import shutil
 import uuid
+from pathlib import Path, PurePosixPath
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocketDisconnect
 from celery.result import AsyncResult
 
 from src.wintermute.engine.worker import analyze_binary_task, celery_app
+from api.routers import dashboard, training, adversarial, pipeline, vault
+from api.ws import ws_manager
 
 app = FastAPI(
     title="Wintermute Threat Intelligence API",
-    description=(
-        "Asynchronous malware analysis pipeline. "
-        "Submit a raw .exe or .elf and poll for the AI verdict."
-    ),
-    version="2.0.0",
+    description="Malware analysis platform with real-time training, adversarial testing, and binary scanning.",
+    version="4.0.0",
 )
+
+# ── Include routers ──────────────────────────────────────────────────────────
+app.include_router(dashboard.router)
+app.include_router(training.router)
+app.include_router(adversarial.router)
+app.include_router(pipeline.router)
+app.include_router(vault.router)
 
 UPLOAD_DIR = "/tmp/wintermute_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
+
 
 # ── Health Check ─────────────────────────────────────────────────────────────
+
 
 @app.get("/health", tags=["ops"])
 async def health_check():
@@ -42,6 +53,7 @@ async def health_check():
 
 
 # ── Scan Endpoint ─────────────────────────────────────────────────────────────
+
 
 @app.post("/api/v1/scan", status_code=202, tags=["analysis"])
 async def analyze_file(file: UploadFile = File(...)):
@@ -52,11 +64,17 @@ async def analyze_file(file: UploadFile = File(...)):
     Celery worker. The response contains a **job_id** you can poll.
     """
     job_id = str(uuid.uuid4())
-    safe_filepath = os.path.join(UPLOAD_DIR, f"{job_id}_{file.filename}")
+    clean_name = PurePosixPath(file.filename or "unknown").name
+    safe_filepath = os.path.join(UPLOAD_DIR, f"{job_id}_{clean_name}")
+
+    # Read and validate upload size
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 100 MB.")
 
     # Persist the upload to disk so the worker can read it
     with open(safe_filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(contents)
 
     # Dispatch to the Celery background worker — returns immediately
     task = analyze_binary_task.apply_async(args=[safe_filepath], task_id=job_id)
@@ -72,6 +90,7 @@ async def analyze_file(file: UploadFile = File(...)):
 
 
 # ── Status / Result Endpoint ──────────────────────────────────────────────────
+
 
 @app.get("/api/v1/status/{job_id}", tags=["analysis"])
 async def get_status(job_id: str):
@@ -109,3 +128,23 @@ async def get_status(job_id: str):
 
     else:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+
+# ── WebSocket Endpoint ───────────────────────────────────────────────────────
+
+
+@app.websocket("/api/v1/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+# ── Static File Serving (React SPA) ──────────────────────────────────────────
+# Serve React SPA in production (web/dist/ built by Vite)
+_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _dist.is_dir():
+    app.mount("/", StaticFiles(directory=str(_dist), html=True), name="spa")

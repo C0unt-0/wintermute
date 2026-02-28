@@ -1,6 +1,6 @@
 [project]
 name = "wintermute"
-version = "2.0.0"
+version = "4.0.0"
 description = "MLX-powered static malware classifier — treats assembly as NLP"
 readme = "README.md"
 license = {text = "MIT"}
@@ -35,15 +35,12 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.4.0",
 ]
-tui = [
-    "textual>=1.0.0",
-]
 adversarial = [
     "gymnasium>=1.0.0",
     "lief>=0.15.0",
 ]
 all = [
-    "wintermute[api,mlops,dev,tui,adversarial]",
+    "wintermute[api,mlops,dev,adversarial]",
     "angr>=9.2.0",
 ]
 
@@ -63,3 +60,4 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

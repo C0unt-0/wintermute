@@ -59,13 +59,19 @@ ruff check src/ tests/ api/                   # Lint
 ruff format src/ tests/ api/                  # Auto-format
 ```
 
-### Docker Stack (API + Worker)
+### Web UI (Development)
 
 ```bash
-docker compose up --build       # Start API, Celery worker, Redis, Flower
-docker compose up api worker    # Start only the inference stack (no monitoring)
-# API: http://localhost:8000
-# Flower dashboard: http://localhost:5555
+cd web && npm run dev            # Vite dev server on http://localhost:5173
+cd web && npm run build          # Production build → web/dist/
+uvicorn api.main:app --reload    # FastAPI backend on http://localhost:8000
+```
+
+### Docker Stack (API + Worker + Web UI)
+
+```bash
+docker compose up --build       # Start API (with web UI), Celery worker, Redis
+# Web UI + API: http://localhost:8000
 ```
 
 ---
@@ -77,7 +83,7 @@ docker compose up api worker    # Start only the inference stack (no monitoring)
 | Mode | Entry Point | ML Backend | Disassembler |
 |------|-------------|------------|--------------|
 | Local CLI | `wintermute.cli` (Typer) | MLX (bfloat16, Apple Silicon) | capstone / pefile / angr |
-| Docker API | `api/main.py` (FastAPI) | PyTorch (CUDA) | Radare2 (r2pipe) |
+| Web UI + API | `api/main.py` (FastAPI) | MLX (local) / PyTorch (Docker) | capstone / Radare2 (r2pipe) |
 
 ### Three Model Architectures
 
@@ -144,11 +150,24 @@ src/wintermute/
     ├── pretrain.py     # MalBERT MLM pre-training loop
     ├── metrics.py      # F1-score, confusion matrix, eval_metrics.json
     ├── tracking.py     # MLflow integration
-    └── worker.py       # Celery task — async binary analysis
+    ├── worker.py       # Celery task — async binary analysis
+    ├── events.py       # Transport-agnostic event dataclasses
+    └── hooks.py        # Callback-based hook classes for training, adversarial, pipeline
 
 api/
-├── main.py             # FastAPI server — /api/v1/scan, /api/v1/status/{id}
-└── schemas.py          # Pydantic request/response models
+├── main.py             # FastAPI server — scan, dashboard, training, adversarial, pipeline, vault + WebSocket
+├── schemas.py          # Pydantic request/response models
+├── ws.py               # WebSocket connection manager for real-time events
+└── routers/            # API route modules (dashboard, training, adversarial, pipeline, vault)
+
+web/                    # React + Vite + TypeScript + Tailwind frontend
+├── src/
+│   ├── api/            # API client + WebSocket client
+│   ├── hooks/          # React hooks (useWebSocket, useJob, useDashboard)
+│   ├── components/     # Shared UI components (StatCard, ConfidenceBar, ConfigPanel, etc.)
+│   ├── pages/          # 6 pages: Dashboard, Scan, Training, Adversarial, Pipeline, Vault
+│   └── styles/         # Terminal Noir theme CSS
+└── vite.config.ts      # Vite config with Tailwind + API proxy
 
 tests/                  # pytest — test_malbert, test_model, test_tokenizer, test_cli, test_tracking
 legacy/                 # Original numbered scripts (reference only, not imported)
