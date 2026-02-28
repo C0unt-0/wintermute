@@ -83,12 +83,12 @@ class AdversarialRepo:
         """Store an adversarial variant. Auto-computes:
 
         - ``mutation_count`` = len(mutations)
-        - ``confidence_delta`` = confidence_after - confidence_before
+        - ``confidence_delta`` = confidence_before - confidence_after (positive = evasion progress)
         - ``achieved_evasion`` = confidence_after < 0.5
         - ``modification_pct`` from kwargs
         """
         mutation_count = len(mutations)
-        confidence_delta = confidence_after - confidence_before
+        confidence_delta = confidence_before - confidence_after
         achieved_evasion = confidence_after < 0.5
         modification_pct = kwargs.pop("modification_pct", 0.0)
 
@@ -125,7 +125,7 @@ class AdversarialRepo:
         """Retrieve vault samples for retraining.
 
         Default: evasive + unused.
-        Order by ``confidence_delta ASC`` (biggest drops first).
+        Order by ``confidence_delta DESC`` (biggest positive drops first).
         """
         stmt = select(AdversarialVariant)
 
@@ -134,7 +134,7 @@ class AdversarialRepo:
         if unused_only:
             stmt = stmt.where(AdversarialVariant.used_in_retraining.is_(False))
 
-        stmt = stmt.order_by(AdversarialVariant.confidence_delta.asc()).limit(limit)
+        stmt = stmt.order_by(AdversarialVariant.confidence_delta.desc()).limit(limit)
         return list(self._session.execute(stmt).scalars().all())
 
     def mark_retrained(self, variant_ids: list[str], training_run_id: str) -> int:

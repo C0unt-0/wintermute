@@ -75,11 +75,15 @@ class ModelRepo:
         if model is None:
             raise ValueError(f"Model not found: {model_id}")
 
-        # Retire the currently active model of the same architecture
-        current_active = self.active(architecture=model.architecture)
-        if current_active is not None and current_active.id != model_id:
-            current_active.status = "retired"
-            current_active.retired_at = datetime.now(timezone.utc)
+        # Retire ALL currently active models of same architecture
+        stmt = select(Model).where(
+            Model.architecture == model.architecture,
+            Model.status == "active",
+            Model.id != model_id,
+        )
+        for active_model in self._session.execute(stmt).scalars().all():
+            active_model.status = "retired"
+            active_model.retired_at = datetime.now(timezone.utc)
 
         model.status = "active"
         model.promoted_at = datetime.now(timezone.utc)

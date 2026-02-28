@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from wintermute.db.models import Base, Model, TrainingRun
+from wintermute.db.models import Base, TrainingRun
 from wintermute.db.repos.samples import SampleRepo
 from wintermute.db.repos.scans import ScanRepo
 from wintermute.db.repos.models_repo import ModelRepo
@@ -449,7 +449,7 @@ class TestScanRepo:
 
 
 class TestModelRepo:
-    def _register(self, repo: ModelRepo, version: str, **overrides) -> "Model":
+    def _register(self, repo: ModelRepo, version: str, **overrides):
         """Helper to register a model with sensible defaults."""
         defaults = {
             "version": version,
@@ -561,6 +561,11 @@ class TestModelRepo:
         with pytest.raises(ValueError):
             repo.retire("nonexistent-id")
 
+    def test_compare_not_found(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        with pytest.raises(ValueError):
+            repo.compare("nonexistent-a", "nonexistent-b")
+
 
 # ==================================================================
 # AdversarialRepo tests
@@ -617,7 +622,7 @@ class TestAdversarialRepo:
         )
         assert variant.id is not None
         assert variant.mutation_count == 2
-        assert abs(variant.confidence_delta - (-0.65)) < 1e-6
+        assert abs(variant.confidence_delta - 0.65) < 1e-6
         assert variant.achieved_evasion is True
         assert variant.modification_pct == 5.0
         assert variant.used_in_retraining is False
@@ -753,3 +758,13 @@ class TestAdversarialRepo:
         assert agent["total_attacks"] == 1
         assert agent["evasions"] == 1
         assert abs(agent["evasion_rate"] - 1.0) < 1e-6
+
+    def test_complete_cycle_not_found(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        with pytest.raises(ValueError):
+            repo.complete_cycle("nonexistent", {"episodes_played": 10})
+
+    def test_mark_retrained_empty(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        count = repo.mark_retrained([], training_run_id="fake")
+        assert count == 0
