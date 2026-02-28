@@ -39,8 +39,13 @@ adversarial = [
     "gymnasium>=1.0.0",
     "lief>=0.15.0",
 ]
+db = [
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "sqlite-vec>=0.1.6",
+]
 all = [
-    "wintermute[api,mlops,dev,adversarial]",
+    "wintermute[api,mlops,dev,adversarial,db]",
     "angr>=9.2.0",
 ]
 

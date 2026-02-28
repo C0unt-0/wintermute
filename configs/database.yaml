@@ -1,0 +1,4 @@
+database:
+  url: "sqlite:///data/wintermute.db"
+  echo: false
+  pool_size: 5
