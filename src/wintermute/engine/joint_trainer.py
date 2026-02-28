@@ -15,6 +15,7 @@ Features:
   - Macro F1 checkpoint saving
   - Graph collation with no-graph fallback (empty graph_index)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -76,6 +77,7 @@ class JointTrainer:
         overrides=None,
         pretrained_encoder_path=None,
         hook=None,
+        db_session=None,
     ):
         cfg = OmegaConf.create(self.DEFAULTS)
         if overrides:
@@ -91,6 +93,8 @@ class JointTrainer:
         # Epoch counter used to seed per-epoch RNG deterministically
         self._epoch_count = 0
         self._hook = hook
+        self._db_session = db_session
+        self._training_run_id = None
         self._load_data()
 
     # ------------------------------------------------------------------
@@ -103,9 +107,7 @@ class JointTrainer:
         with open(self.data_dir / "vocab.json") as f:
             self.vocab = json.load(f)
 
-        self.vocab_sha = hashlib.sha256(
-            json.dumps(self.vocab, sort_keys=True).encode()
-        ).hexdigest()
+        self.vocab_sha = hashlib.sha256(json.dumps(self.vocab, sort_keys=True).encode()).hexdigest()
 
         # Build reverse vocab once for Layer 2 augmentation decode/re-encode
         self.id_to_op = {v: k for k, v in self.vocab.items()}
@@ -214,7 +216,7 @@ class JointTrainer:
         if not all_nodes:
             return None, None, None, None, 0
 
-        node_embs = mx.stack(all_nodes)                      # [N_total, D]
+        node_embs = mx.stack(all_nodes)  # [N_total, D]
         edge_src = mx.array(all_src, dtype=mx.int32)
         edge_dst = mx.array(all_dst, dtype=mx.int32)
         batch_idx = mx.array(batch_ids, dtype=mx.int32)
@@ -244,9 +246,7 @@ class JointTrainer:
             steps_per_epoch = (
                 self.x_train.shape[0] + self.cfg.batch_size - 1
             ) // self.cfg.batch_size
-            total_steps = (
-                self.cfg.epochs_phase_a + self.cfg.epochs_phase_b
-            ) * steps_per_epoch
+            total_steps = (self.cfg.epochs_phase_a + self.cfg.epochs_phase_b) * steps_per_epoch
             self.optimizer = self._make_optimizer(total_steps)
 
         x, y = self.x_train, self.y_train
@@ -275,16 +275,22 @@ class JointTrainer:
 
         def soft_xent_mixup(
             model,
-            xb_a, xb_b,           # token IDs for the two batches
-            yb_a, yb_b,           # integer labels for the two batches
-            lam,                  # float
-            node_embs, edge_src, edge_dst, batch_idx, n_graphs,
+            xb_a,
+            xb_b,  # token IDs for the two batches
+            yb_a,
+            yb_b,  # integer labels for the two batches
+            lam,  # float
+            node_embs,
+            edge_src,
+            edge_dst,
+            batch_idx,
+            n_graphs,
         ):
             """Embedding-space Mixup soft cross-entropy."""
             # Prepend [CLS] / append [SEP] at token-ID level first so that
             # the embedding dimension (T+2) matches what the encoder expects.
-            xb_a_special = model._prepend_cls_append_sep(xb_a)   # [B, T+2]
-            xb_b_special = model._prepend_cls_append_sep(xb_b)   # [B, T+2]
+            xb_a_special = model._prepend_cls_append_sep(xb_a)  # [B, T+2]
+            xb_b_special = model._prepend_cls_append_sep(xb_b)  # [B, T+2]
 
             # Compute token embeddings for both batches [B, T+2, D]
             emb_a = model.token_embedding(xb_a_special)
@@ -329,9 +335,7 @@ class JointTrainer:
                 xb = self._augment_sequences(xb)
 
             # Embedding-space Mixup augmentation
-            use_mixup = (
-                rng.random() < self.cfg.mixup_prob and batch_size_actual >= 2
-            )
+            use_mixup = rng.random() < self.cfg.mixup_prob and batch_size_actual >= 2
             if use_mixup:
                 lam = float(rng.beta(0.4, 0.4))
                 perm = rng.permutation(batch_size_actual)
@@ -340,20 +344,24 @@ class JointTrainer:
 
                 loss, grads = loss_and_grad_mixup(
                     self.model,
-                    xb, xb_b,
-                    yb, yb_b,
+                    xb,
+                    xb_b,
+                    yb,
+                    yb_b,
                     lam,
-                    ne, es, ed, bidx, ng,
+                    ne,
+                    es,
+                    ed,
+                    bidx,
+                    ng,
                 )
             else:
                 # Build one-hot soft labels for normal path
-                yb_soft = mx.zeros((batch_size_actual, C)).at[
-                    mx.arange(batch_size_actual), yb
-                ].add(1.0)
-
-                loss, grads = loss_and_grad_normal(
-                    self.model, xb, yb_soft, ne, es, ed, bidx, ng
+                yb_soft = (
+                    mx.zeros((batch_size_actual, C)).at[mx.arange(batch_size_actual), yb].add(1.0)
                 )
+
+                loss, grads = loss_and_grad_normal(self.model, xb, yb_soft, ne, es, ed, bidx, ng)
 
             # Phase A: zero encoder gradients to approximate frozen encoder
             if phase == "A" and "malbert_encoder" in grads:
@@ -374,8 +382,7 @@ class JointTrainer:
                 grads["malbert_encoder"] = scaled_enc
 
             # Gradient clipping via global norm (applied AFTER differential LR scaling)
-            flat_leaves = [v for _, v in mlx.utils.tree_flatten(grads)
-                           if isinstance(v, mx.array)]
+            flat_leaves = [v for _, v in mlx.utils.tree_flatten(grads) if isinstance(v, mx.array)]
             if flat_leaves:
                 norm = mx.sqrt(sum(mx.sum(g * g) for g in flat_leaves))
                 # mx.eval materializes lazy MLX computation (not Python eval)
@@ -450,9 +457,7 @@ class JointTrainer:
         Returns the best macro F1 score achieved on the validation set.
         """
         print(
-            f"Vocab: {len(self.vocab)}  "
-            f"Train: {self.x_train.shape[0]}  "
-            f"Val: {self.x_val.shape[0]}"
+            f"Vocab: {len(self.vocab)}  Train: {self.x_train.shape[0]}  Val: {self.x_val.shape[0]}"
         )
 
         self.model = WintermuteMalwareDetector(self.model_config)
@@ -461,16 +466,34 @@ class JointTrainer:
         # Load pretrained encoder weights if provided
         if self.pretrained_path and Path(self.pretrained_path).exists():
             print(f"Loading pretrained encoder from {self.pretrained_path}")
-            self.model.malbert_encoder.load_weights(
-                self.pretrained_path, strict=False
-            )
+            self.model.malbert_encoder.load_weights(self.pretrained_path, strict=False)
 
-        steps_per_epoch = (
-            self.x_train.shape[0] + self.cfg.batch_size - 1
-        ) // self.cfg.batch_size
-        total_steps = (
-            self.cfg.epochs_phase_a + self.cfg.epochs_phase_b
-        ) * steps_per_epoch
+        # --- DB: create TrainingRun row ---
+        self._training_run_id = None
+        if self._db_session is not None:
+            try:
+                from wintermute.db.models import TrainingRun
+
+                run = TrainingRun(
+                    config=dict(self.cfg),
+                    pretrained_weights=self.pretrained_path,
+                    total_samples=int(self.x_train.shape[0] + self.x_val.shape[0]),
+                    num_classes=self.model_config.num_classes,
+                    train_split_size=int(self.x_train.shape[0]),
+                    val_split_size=int(self.x_val.shape[0]),
+                )
+                self._db_session.add(run)
+                self._db_session.flush()
+                self._training_run_id = run.id
+            except Exception:
+                import logging
+
+                logging.getLogger("wintermute.db").debug(
+                    "Failed to create TrainingRun row", exc_info=True
+                )
+
+        steps_per_epoch = (self.x_train.shape[0] + self.cfg.batch_size - 1) // self.cfg.batch_size
+        total_steps = (self.cfg.epochs_phase_a + self.cfg.epochs_phase_b) * steps_per_epoch
 
         self.optimizer = self._make_optimizer(total_steps)
         best_f1 = 0.0
@@ -485,10 +508,7 @@ class JointTrainer:
                 loss = self.train_one_epoch(phase)
                 f1 = self._validate()
                 elapsed = time.perf_counter() - t0
-                print(
-                    f"  ep {ep:3d}  loss={loss:.4f}  val_f1={f1:.4f}  "
-                    f"({elapsed:.1f}s)"
-                )
+                print(f"  ep {ep:3d}  loss={loss:.4f}  val_f1={f1:.4f}  ({elapsed:.1f}s)")
                 if self._hook:
                     self._hook.on_epoch(ep, phase, loss, 0.0, f1, f1, elapsed)
                     if self._hook.cancelled:
@@ -497,6 +517,67 @@ class JointTrainer:
                 if f1 > best_f1:
                     best_f1 = f1
                     self._save_checkpoint(f1)
+
+                    # --- DB: update best metrics on TrainingRun ---
+                    if self._db_session is not None and self._training_run_id is not None:
+                        try:
+                            from wintermute.db.models import TrainingRun
+
+                            run = self._db_session.get(TrainingRun, self._training_run_id)
+                            if run:
+                                run.best_epoch = ep
+                                run.best_val_loss = loss
+                                run.best_val_macro_f1 = f1
+                                run.best_val_accuracy = f1  # approximate
+                                run.epochs_completed = ep
+                                self._db_session.flush()
+                        except Exception:
+                            import logging
+
+                            logging.getLogger("wintermute.db").debug(
+                                "Failed to update TrainingRun row", exc_info=True
+                            )
+
+        # --- DB: create Model row and finalize TrainingRun ---
+        if self._db_session is not None and self._training_run_id is not None:
+            try:
+                from datetime import datetime, timezone
+
+                from wintermute.db.models import Model, TrainingRun
+
+                run = self._db_session.get(TrainingRun, self._training_run_id)
+                if run:
+                    run.completed_at = datetime.now(timezone.utc)
+                    run.epochs_completed = self.cfg.epochs_phase_a + self.cfg.epochs_phase_b
+
+                model_row = Model(
+                    version=f"v-{self._training_run_id[:8]}",
+                    architecture="WintermuteMalwareDetector",
+                    weights_path=str(self.cfg.save_path),
+                    manifest_path=str(self.cfg.manifest_path),
+                    vocab_size=len(self.vocab),
+                    num_classes=self.model_config.num_classes,
+                    dims=self.model_config.dims,
+                    max_seq_length=self.model_config.max_seq_length,
+                    vocab_sha256=self.vocab_sha,
+                    training_run_id=self._training_run_id,
+                    pretrained_from=self.pretrained_path,
+                    best_val_macro_f1=best_f1,
+                    status="staged",
+                )
+                self._db_session.add(model_row)
+                self._db_session.flush()
+
+                # Link the training run back to the model
+                if run:
+                    run.model_id = model_row.id
+                    self._db_session.flush()
+            except Exception:
+                import logging
+
+                logging.getLogger("wintermute.db").debug(
+                    "Failed to create Model row", exc_info=True
+                )
 
         print(f"\nDone. Best macro F1: {best_f1:.4f}")
         if self._hook:
