@@ -209,21 +209,16 @@ class AdversarialOrchestrator:
                     if self._db_session is not None and self._current_cycle_id is not None:
                         try:
                             from wintermute.db.repos.adversarial import AdversarialRepo
-
                             parent_sha = hashlib.sha256(
                                 self.env.original_tokens.tobytes()
                             ).hexdigest()
                             tokens = self.env.current_tokens
-                            # Use a savepoint so FK violations don't poison
-                            # the session for subsequent operations.
                             nested = self._db_session.begin_nested()
                             try:
                                 AdversarialRepo(self._db_session).store_variant(
                                     parent_sha256=parent_sha,
                                     cycle_id=self._current_cycle_id,
-                                    mutated_tokens=tokens.tolist()
-                                    if hasattr(tokens, "tolist")
-                                    else list(tokens),
+                                    mutated_tokens=tokens.tolist(),
                                     mutations=[{"action": int(action)}],
                                     confidence_before=self.env.initial_confidence,
                                     confidence_after=float(step_info["confidence"]),
@@ -231,11 +226,16 @@ class AdversarialOrchestrator:
                                     / max(len(self.env.current_tokens), 1)
                                     * 100,
                                 )
+                                nested.commit()
                             except Exception:
                                 nested.rollback()
-                                raise
+                                _db_log.warning(
+                                    "Failed to store adversarial variant", exc_info=True
+                                )
                         except Exception:
-                            _db_log.warning("Failed to store adversarial variant", exc_info=True)
+                            _db_log.warning(
+                                "Failed to store adversarial variant", exc_info=True
+                            )
 
             final_confidences.append(self.env.last_confidence)
             mutations_per_ep.append(self.env.n_mutations)

@@ -12,35 +12,15 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-from sqlalchemy import create_engine, event, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from wintermute.db.models import Base, Model, TrainingRun
+from wintermute.db.models import Model, TrainingRun
 
 
 # ------------------------------------------------------------------
-# Shared fixtures
+# Helpers
 # ------------------------------------------------------------------
-
-
-@pytest.fixture()
-def db_session():
-    """Yield an in-memory SQLite session with all tables created."""
-    engine = create_engine("sqlite:///:memory:")
-
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_conn, connection_record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine)
-    session = SessionLocal()
-    yield session
-    session.close()
-    engine.dispose()
 
 
 def _make_trainer(tmp_dir, db_session=None, epochs_b=2):

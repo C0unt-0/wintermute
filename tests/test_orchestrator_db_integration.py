@@ -15,40 +15,19 @@ import hashlib
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
-from sqlalchemy import create_engine, event, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from wintermute.db.models import (
     AdversarialCycle,
     AdversarialVariant,
-    Base,
 )
 from wintermute.db.repos.samples import SampleRepo
 
 
 # ------------------------------------------------------------------
-# Shared fixtures
+# Helpers
 # ------------------------------------------------------------------
-
-
-@pytest.fixture()
-def db_session():
-    """Yield an in-memory SQLite session with all tables created."""
-    engine = create_engine("sqlite:///:memory:")
-
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_conn, connection_record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine)
-    session = SessionLocal()
-    yield session
-    session.close()
-    engine.dispose()
 
 
 def _make_orchestrator(db_session=None):
@@ -158,6 +137,8 @@ class TestOrchestratorDBIntegration:
         assert cycle.episodes_played == 1
         assert cycle.total_evasions == 1
         assert cycle.evasion_rate == 1.0
+        assert cycle.mean_confidence_drop is not None
+        assert cycle.mean_confidence_drop > 0
 
     def test_orchestrator_stores_variants(self, db_session: Session):
         """Verify AdversarialVariant rows are created when evasions occur.
@@ -180,6 +161,7 @@ class TestOrchestratorDBIntegration:
 
         orch.run_cycle(n_episodes=1)
 
+        db_session.expire_all()
         variants = db_session.execute(select(AdversarialVariant)).scalars().all()
         assert len(variants) == 1
         v = variants[0]
@@ -236,6 +218,7 @@ class TestOrchestratorDBIntegration:
         assert cycles[0].completed_at is not None
 
         # No variant rows (FK violation was caught)
+        db_session.expire_all()
         variants = db_session.execute(select(AdversarialVariant)).scalars().all()
         assert len(variants) == 0
 
