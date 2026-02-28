@@ -75,7 +75,7 @@ class JointTrainer:
         data_dir,
         overrides=None,
         pretrained_encoder_path=None,
-        tui_hook=None,
+        hook=None,
     ):
         cfg = OmegaConf.create(self.DEFAULTS)
         if overrides:
@@ -90,7 +90,7 @@ class JointTrainer:
         self._augmenter = None
         # Epoch counter used to seed per-epoch RNG deterministically
         self._epoch_count = 0
-        self._tui_hook = tui_hook
+        self._hook = hook
         self._load_data()
 
     # ------------------------------------------------------------------
@@ -489,16 +489,16 @@ class JointTrainer:
                     f"  ep {ep:3d}  loss={loss:.4f}  val_f1={f1:.4f}  "
                     f"({elapsed:.1f}s)"
                 )
-                if self._tui_hook:
-                    self._tui_hook.on_epoch(ep, phase, loss, 0.0, f1, f1, elapsed)
-                    if self._tui_hook.cancelled:
-                        self._tui_hook.on_log(f"Training cancelled at epoch {ep}", "warn")
+                if self._hook:
+                    self._hook.on_epoch(ep, phase, loss, 0.0, f1, f1, elapsed)
+                    if self._hook.cancelled:
+                        self._hook.on_log(f"Training cancelled at epoch {ep}", "warn")
                         return best_f1
                 if f1 > best_f1:
                     best_f1 = f1
                     self._save_checkpoint(f1)
 
         print(f"\nDone. Best macro F1: {best_f1:.4f}")
-        if self._tui_hook:
-            self._tui_hook.on_log(f"Training complete — best F1: {best_f1:.4f}", "ok")
+        if self._hook:
+            self._hook.on_log(f"Training complete — best F1: {best_f1:.4f}", "ok")
         return best_f1

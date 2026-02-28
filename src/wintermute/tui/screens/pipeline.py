@@ -155,7 +155,7 @@ class PipelineScreen(Vertical):
                 "mask_prob": float(values["mask_prob"]),
             }
         }
-        trainer = MLMPretrainer(overrides=overrides, tui_hook=self._hook)
+        trainer = MLMPretrainer(overrides=overrides, hook=self._hook)
         trainer.pretrain()
         self.app.call_from_thread(self.app._log, "Pre-training complete", "ok")
 

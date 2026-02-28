@@ -2,13 +2,13 @@
 hooks.py — Callback bridge: training loops → TUI messages.
 
 Usage in JointTrainer:
-    if self._tui_hook:
-        self._tui_hook.on_epoch(epoch, phase, loss, train_acc, val_acc, f1, elapsed)
+    if self._hook:
+        self._hook.on_epoch(epoch, phase, loss, train_acc, val_acc, f1, elapsed)
 
 Usage in AdversarialOrchestrator:
-    if self._tui_hook:
-        self._tui_hook.on_episode_step(step, action, pos, conf, ok)
-        self._tui_hook.on_cycle_end(cycle, metrics_dict)
+    if self._hook:
+        self._hook.on_episode_step(step, action, pos, conf, ok)
+        self._hook.on_cycle_end(cycle, metrics_dict)
 """
 
 from __future__ import annotations

@@ -95,7 +95,7 @@ class TrainingScreen(Vertical):
             config=config,
             data_dir="data/processed",
             overrides=overrides,
-            tui_hook=self._hook,
+            hook=self._hook,
         )
         trainer.train()
 
