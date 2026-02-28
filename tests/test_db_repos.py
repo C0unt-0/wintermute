@@ -1,4 +1,4 @@
-"""Tests for wintermute.db.repos — SampleRepo, ScanRepo, ModelRepo, AdversarialRepo."""
+"""Tests for wintermute.db.repos — SampleRepo, ScanRepo, ModelRepo, AdversarialRepo, EmbeddingRepo."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from wintermute.db.models import Base, TrainingRun
+from wintermute.db.models import Base, Sample, ScanResult, TrainingRun
 from wintermute.db.repos.samples import SampleRepo
 from wintermute.db.repos.scans import ScanRepo
 from wintermute.db.repos.models_repo import ModelRepo
@@ -768,3 +768,278 @@ class TestAdversarialRepo:
         repo = AdversarialRepo(db_session)
         count = repo.mark_retrained([], training_run_id="fake")
         assert count == 0
+
+
+# ==================================================================
+# EmbeddingRepo tests
+# ==================================================================
+
+
+class TestEmbeddingRepo:
+    """Tests for EmbeddingRepo.
+
+    All tests use the pure-Python cosine distance fallback since
+    sqlite-vec is not expected to be available in CI.
+    """
+
+    def _add_samples_with_embeddings(self, db_session: Session, n: int = 5) -> None:
+        """Helper: create *n* samples and set embeddings on all of them."""
+        dim = 8  # small dimension for tests
+        for i in range(n):
+            vec = [float(i * 10 + j) for j in range(dim)]
+            sample = Sample(
+                sha256=f"{chr(97 + i)}" * 64,
+                family="Emotet" if i < 3 else "AgentTesla",
+                label=1 if i < 3 else 2,
+                source="test",
+            )
+            sample.embedding = struct.pack(f"{dim}f", *vec)
+            db_session.add(sample)
+        db_session.flush()
+
+    # -- coverage_stats -------------------------------------------------
+
+    def test_coverage_stats_no_embeddings(self, db_session: Session):
+        """coverage_stats works without vector extension."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        for i in range(3):
+            db_session.add(
+                Sample(
+                    sha256=f"{chr(97 + i)}" * 64,
+                    family="test",
+                    label=0,
+                    source="test",
+                )
+            )
+        db_session.flush()
+
+        repo = EmbeddingRepo(db_session)
+        stats = repo.coverage_stats()
+        assert stats["total_samples"] == 3
+        assert stats["with_embedding"] == 0
+        assert stats["without_embedding"] == 3
+        assert stats["pct_covered"] == 0.0
+
+    def test_coverage_stats_with_embeddings(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+        stats = repo.coverage_stats()
+        assert stats["total_samples"] == 5
+        assert stats["with_embedding"] == 5
+        assert stats["pct_covered"] == 100.0
+
+    def test_coverage_stats_partial(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=3)
+        # Add two samples *without* embeddings
+        for c in "xy":
+            db_session.add(
+                Sample(sha256=c * 64, family="test", label=0, source="test")
+            )
+        db_session.flush()
+
+        repo = EmbeddingRepo(db_session)
+        stats = repo.coverage_stats()
+        assert stats["total_samples"] == 5
+        assert stats["with_embedding"] == 3
+        assert stats["without_embedding"] == 2
+        assert abs(stats["pct_covered"] - 60.0) < 1e-6
+
+    def test_coverage_stats_empty_db(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        repo = EmbeddingRepo(db_session)
+        stats = repo.coverage_stats()
+        assert stats["total_samples"] == 0
+        assert stats["pct_covered"] == 0.0
+
+    # -- find_nearest ---------------------------------------------------
+
+    def test_find_nearest(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+
+        # Query vector close to sample 0 (values [0..7])
+        query = [float(j) for j in range(8)]
+        results = repo.find_nearest(query, k=3)
+
+        assert len(results) <= 3
+        assert len(results) > 0
+        # Results should be dicts with the expected keys
+        assert "sha256" in results[0]
+        assert "family" in results[0]
+        assert "label" in results[0]
+        assert "distance" in results[0]
+        # First result should be the nearest (smallest distance)
+        assert results[0]["distance"] <= results[-1]["distance"]
+
+    def test_find_nearest_ordering(self, db_session: Session):
+        """Results are sorted by ascending distance."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+
+        query = [float(j) for j in range(8)]
+        results = repo.find_nearest(query, k=5)
+        distances = [r["distance"] for r in results]
+        assert distances == sorted(distances)
+
+    def test_find_nearest_with_family_filter(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+
+        query = [float(j) for j in range(8)]
+        results = repo.find_nearest(query, k=10, family="Emotet")
+        # Should only return Emotet samples (at most 3 based on helper)
+        assert len(results) <= 3
+        for r in results:
+            assert r["family"] == "Emotet"
+
+    def test_find_nearest_with_max_distance(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+
+        query = [float(j) for j in range(8)]
+        # Use a very small max_distance to filter aggressively
+        results = repo.find_nearest(query, k=10, max_distance=0.001)
+        for r in results:
+            assert r["distance"] <= 0.001
+
+    def test_find_nearest_empty_db(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        repo = EmbeddingRepo(db_session)
+        results = repo.find_nearest([0.0] * 8, k=5)
+        assert results == []
+
+    def test_find_nearest_no_embeddings(self, db_session: Session):
+        """Samples exist but none have embeddings."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        db_session.add(
+            Sample(sha256="a" * 64, family="test", label=0, source="test")
+        )
+        db_session.flush()
+
+        repo = EmbeddingRepo(db_session)
+        results = repo.find_nearest([0.0] * 8, k=5)
+        assert results == []
+
+    # -- find_nearest_with_scans ----------------------------------------
+
+    def test_find_nearest_with_scans(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=3)
+
+        # Add a scan result for the first sample
+        scan = ScanResult(
+            sha256="a" * 64,
+            predicted_family="Emotet",
+            predicted_label=1,
+            confidence=0.95,
+            probabilities={},
+            model_version="v1.0.0",
+        )
+        db_session.add(scan)
+        db_session.flush()
+
+        repo = EmbeddingRepo(db_session)
+        query = [float(j) for j in range(8)]
+        results = repo.find_nearest_with_scans(query, k=3)
+
+        assert len(results) > 0
+        # Every result should have the enriched keys
+        for r in results:
+            assert "sha256" in r
+            assert "family" in r
+            assert "distance" in r
+            assert "last_scan_confidence" in r
+            assert "last_scan_date" in r
+
+        # The sample with a scan should have non-null scan fields
+        scanned = [r for r in results if r["sha256"] == "a" * 64]
+        if scanned:
+            assert scanned[0]["last_scan_confidence"] == 0.95
+            assert scanned[0]["last_scan_date"] is not None
+
+    def test_find_nearest_with_scans_no_scans(self, db_session: Session):
+        """Neighbours with no scan results should have None for scan fields."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=2)
+        repo = EmbeddingRepo(db_session)
+
+        query = [float(j) for j in range(8)]
+        results = repo.find_nearest_with_scans(query, k=2)
+        for r in results:
+            assert r["last_scan_confidence"] is None
+            assert r["last_scan_date"] is None
+
+    def test_find_nearest_with_scans_empty(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        repo = EmbeddingRepo(db_session)
+        results = repo.find_nearest_with_scans([0.0] * 8, k=5)
+        assert results == []
+
+    # -- cluster_family -------------------------------------------------
+
+    def test_cluster_family(self, db_session: Session):
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+
+        results = repo.cluster_family("Emotet", k=3)
+        assert len(results) <= 3
+        assert len(results) > 0
+        # Should return dicts with sha256, label, distance
+        for r in results:
+            assert "sha256" in r
+            assert "label" in r
+            assert "distance" in r
+
+    def test_cluster_family_ordering(self, db_session: Session):
+        """Results are sorted by ascending centroid distance."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+
+        results = repo.cluster_family("Emotet", k=3)
+        distances = [r["distance"] for r in results]
+        assert distances == sorted(distances)
+
+    def test_cluster_family_empty(self, db_session: Session):
+        """No samples for the requested family."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        self._add_samples_with_embeddings(db_session, n=5)
+        repo = EmbeddingRepo(db_session)
+        results = repo.cluster_family("NonExistentFamily", k=3)
+        assert results == []
+
+    def test_cluster_family_no_embeddings(self, db_session: Session):
+        """Family exists but has no embeddings."""
+        from wintermute.db.repos.embeddings import EmbeddingRepo
+
+        db_session.add(
+            Sample(sha256="a" * 64, family="Emotet", label=1, source="test")
+        )
+        db_session.flush()
+
+        repo = EmbeddingRepo(db_session)
+        results = repo.cluster_family("Emotet", k=3)
+        assert results == []
