@@ -1,7 +1,9 @@
 function App() {
   return (
-    <div className="min-h-screen bg-[#0a0e14] text-[#e0e6ed]">
-      <h1 className="text-2xl p-8">Wintermute</h1>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <h1 className="text-2xl p-8 font-heading" style={{ fontFamily: 'var(--font-heading)' }}>
+        Wintermute
+      </h1>
     </div>
   );
 }
