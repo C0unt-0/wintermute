@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createWebSocket } from "../api/ws";
+import { createWebSocket, type WebSocketHandle } from "../api/ws";
 
 export interface WSEvent {
   type: string;
@@ -8,13 +8,13 @@ export interface WSEvent {
 
 export function useWebSocket() {
   const [events, setEvents] = useState<WSEvent[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
+  const handleRef = useRef<WebSocketHandle | null>(null);
   const listenersRef = useRef<Map<string, Set<(data: WSEvent) => void>>>(
     new Map(),
   );
 
   useEffect(() => {
-    wsRef.current = createWebSocket((data) => {
+    handleRef.current = createWebSocket((data) => {
       const event = data as WSEvent;
       setEvents((prev) => [...prev.slice(-200), event]);
 
@@ -26,7 +26,7 @@ export function useWebSocket() {
     });
 
     return () => {
-      wsRef.current?.close();
+      handleRef.current?.destroy();
     };
   }, []);
 

@@ -108,7 +108,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-5 gap-4">
         <StatCard
           label="MODEL"
-          value="v3.0.0"
+          value={data?.model_version ? `v${data.model_version}` : "\u2014"}
           subtitle="MalBERT + GAT + Fusion"
           color="var(--data)"
         />

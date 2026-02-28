@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 interface UseJobOptions<TConfig, TStatus> {
   start: (config: TConfig) => Promise<{ job_id: string }>;
@@ -70,6 +70,10 @@ export function useJob<TConfig, TStatus extends { status: string }>({
       }
     }
   }, [jobId, cancel, stopPolling]);
+
+  useEffect(() => {
+    return () => stopPolling();
+  }, [stopPolling]);
 
   return { jobId, status, error, isRunning, startJob, cancelJob };
 }
