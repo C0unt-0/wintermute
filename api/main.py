@@ -13,27 +13,37 @@ src/wintermute/engine/worker.py.
 import os
 import shutil
 import uuid
+from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocketDisconnect
 from celery.result import AsyncResult
 
 from src.wintermute.engine.worker import analyze_binary_task, celery_app
+from api.routers import dashboard, training, adversarial, pipeline, vault
+from api.ws import ws_manager
 
 app = FastAPI(
     title="Wintermute Threat Intelligence API",
-    description=(
-        "Asynchronous malware analysis pipeline. "
-        "Submit a raw .exe or .elf and poll for the AI verdict."
-    ),
-    version="2.0.0",
+    description="Malware analysis platform with real-time training, adversarial testing, and binary scanning.",
+    version="4.0.0",
 )
+
+# ── Include routers ──────────────────────────────────────────────────────────
+app.include_router(dashboard.router)
+app.include_router(training.router)
+app.include_router(adversarial.router)
+app.include_router(pipeline.router)
+app.include_router(vault.router)
 
 UPLOAD_DIR = "/tmp/wintermute_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # ── Health Check ─────────────────────────────────────────────────────────────
+
 
 @app.get("/health", tags=["ops"])
 async def health_check():
@@ -42,6 +52,7 @@ async def health_check():
 
 
 # ── Scan Endpoint ─────────────────────────────────────────────────────────────
+
 
 @app.post("/api/v1/scan", status_code=202, tags=["analysis"])
 async def analyze_file(file: UploadFile = File(...)):
@@ -72,6 +83,7 @@ async def analyze_file(file: UploadFile = File(...)):
 
 
 # ── Status / Result Endpoint ──────────────────────────────────────────────────
+
 
 @app.get("/api/v1/status/{job_id}", tags=["analysis"])
 async def get_status(job_id: str):
@@ -109,3 +121,23 @@ async def get_status(job_id: str):
 
     else:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+
+# ── WebSocket Endpoint ───────────────────────────────────────────────────────
+
+
+@app.websocket("/api/v1/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+# ── Static File Serving (React SPA) ──────────────────────────────────────────
+# Serve React SPA in production (web/dist/ built by Vite)
+_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _dist.is_dir():
+    app.mount("/", StaticFiles(directory=str(_dist), html=True), name="spa")
