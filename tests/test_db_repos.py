@@ -1,4 +1,4 @@
-"""Tests for wintermute.db.repos — SampleRepo and ScanRepo."""
+"""Tests for wintermute.db.repos — SampleRepo, ScanRepo, ModelRepo, AdversarialRepo."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from wintermute.db.models import Base
+from wintermute.db.models import Base, Model, TrainingRun
 from wintermute.db.repos.samples import SampleRepo
 from wintermute.db.repos.scans import ScanRepo
+from wintermute.db.repos.models_repo import ModelRepo
+from wintermute.db.repos.adversarial import AdversarialRepo
 
 
 # ------------------------------------------------------------------
@@ -439,3 +441,315 @@ class TestScanRepo:
         )
         assert scan.filename == "evil.exe"
         assert scan.execution_time_ms == 42.5
+
+
+# ==================================================================
+# ModelRepo tests
+# ==================================================================
+
+
+class TestModelRepo:
+    def _register(self, repo: ModelRepo, version: str, **overrides) -> "Model":
+        """Helper to register a model with sensible defaults."""
+        defaults = {
+            "version": version,
+            "weights_path": f"/models/{version}.safetensors",
+            "manifest_path": f"/models/{version}_manifest.json",
+            "config": {"hidden_dim": 256},
+            "metrics": {"best_val_macro_f1": 0.85, "best_val_accuracy": 0.90},
+            "vocab_size": 5000,
+            "num_classes": 2,
+            "dims": 256,
+        }
+        defaults.update(overrides)
+        return repo.register(**defaults)
+
+    def test_register(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        model = self._register(
+            repo,
+            "v1.0.0",
+            metrics={
+                "best_val_macro_f1": 0.88,
+                "best_val_accuracy": 0.92,
+                "best_val_auc_roc": 0.95,
+            },
+        )
+        assert model.id is not None
+        assert model.version == "v1.0.0"
+        assert model.status == "staged"
+        assert model.best_val_macro_f1 == 0.88
+        assert model.best_val_accuracy == 0.92
+        assert model.best_val_auc_roc == 0.95
+        assert model.vocab_size == 5000
+        assert model.num_classes == 2
+        assert model.dims == 256
+
+    def test_promote_retires_previous(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        m1 = self._register(repo, "v1.0.0")
+        repo.promote(m1.id)
+        assert m1.status == "active"
+        assert m1.promoted_at is not None
+
+        m2 = self._register(repo, "v2.0.0")
+        repo.promote(m2.id)
+        assert m2.status == "active"
+        # m1 should now be retired
+        db_session.refresh(m1)
+        assert m1.status == "retired"
+        assert m1.retired_at is not None
+
+    def test_retire(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        m = self._register(repo, "v1.0.0")
+        repo.retire(m.id)
+        db_session.refresh(m)
+        assert m.status == "retired"
+        assert m.retired_at is not None
+
+    def test_active(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        m = self._register(repo, "v1.0.0")
+        repo.promote(m.id)
+        active = repo.active()
+        assert active is not None
+        assert active.id == m.id
+        assert active.status == "active"
+
+    def test_active_returns_none_when_none(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        assert repo.active() is None
+
+    def test_history(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        for i in range(5):
+            self._register(repo, f"v{i}.0.0")
+
+        history = repo.history(limit=3)
+        assert len(history) == 3
+        # Most recent first
+        assert history[0].version == "v4.0.0"
+
+    def test_compare(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        m1 = self._register(
+            repo,
+            "v1.0.0",
+            metrics={"best_val_macro_f1": 0.80, "best_val_accuracy": 0.85},
+        )
+        m2 = self._register(
+            repo,
+            "v2.0.0",
+            metrics={"best_val_macro_f1": 0.90, "best_val_accuracy": 0.92},
+        )
+        result = repo.compare(m1.id, m2.id)
+        assert result["model_a"]["id"] == m1.id
+        assert result["model_a"]["version"] == "v1.0.0"
+        assert result["model_a"]["best_val_macro_f1"] == 0.80
+        assert result["model_b"]["id"] == m2.id
+        assert result["model_b"]["version"] == "v2.0.0"
+        assert result["model_b"]["best_val_macro_f1"] == 0.90
+
+    def test_promote_not_found(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        with pytest.raises(ValueError):
+            repo.promote("nonexistent-id")
+
+    def test_retire_not_found(self, db_session: Session):
+        repo = ModelRepo(db_session)
+        with pytest.raises(ValueError):
+            repo.retire("nonexistent-id")
+
+
+# ==================================================================
+# AdversarialRepo tests
+# ==================================================================
+
+
+class TestAdversarialRepo:
+    def _create_sample(self, db_session: Session, sha256: str, family: str = "Emotet"):
+        """Helper to create a sample prerequisite."""
+        sample_repo = SampleRepo(db_session)
+        return sample_repo.upsert(sha256=sha256, family=family, label=1, source="test")
+
+    def test_start_and_complete_cycle(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        cycle = repo.start_cycle(cycle_number=1)
+        assert cycle.id is not None
+        assert cycle.started_at is not None
+        assert cycle.completed_at is None
+
+        stats = {
+            "episodes_played": 100,
+            "total_evasions": 30,
+            "evasion_rate": 0.30,
+            "mean_confidence_drop": -0.25,
+            "vault_samples_used": 20,
+            "defender_f1_before": 0.90,
+            "defender_f1_after": 0.93,
+        }
+        repo.complete_cycle(cycle.id, stats)
+        db_session.refresh(cycle)
+        assert cycle.completed_at is not None
+        assert cycle.episodes_played == 100
+        assert cycle.total_evasions == 30
+        assert cycle.evasion_rate == 0.30
+        assert cycle.mean_confidence_drop == -0.25
+        assert cycle.vault_samples_used == 20
+        assert cycle.defender_f1_before == 0.90
+        assert cycle.defender_f1_after == 0.93
+        assert cycle.retrained is True
+
+    def test_store_variant(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        self._create_sample(db_session, "a" * 64)
+        cycle = repo.start_cycle(cycle_number=1)
+
+        variant = repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[10, 20, 30],
+            mutations=[{"type": "swap", "pos": 10}, {"type": "insert", "pos": 20}],
+            confidence_before=0.95,
+            confidence_after=0.30,
+            modification_pct=5.0,
+        )
+        assert variant.id is not None
+        assert variant.mutation_count == 2
+        assert abs(variant.confidence_delta - (-0.65)) < 1e-6
+        assert variant.achieved_evasion is True
+        assert variant.modification_pct == 5.0
+        assert variant.used_in_retraining is False
+
+    def test_store_variant_no_evasion(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        self._create_sample(db_session, "a" * 64)
+        cycle = repo.start_cycle(cycle_number=1)
+
+        variant = repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[10],
+            mutations=[{"type": "swap", "pos": 10}],
+            confidence_before=0.95,
+            confidence_after=0.70,
+            modification_pct=1.0,
+        )
+        assert variant.achieved_evasion is False
+
+    def test_get_vault_filters(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        self._create_sample(db_session, "a" * 64)
+        cycle = repo.start_cycle(cycle_number=1)
+
+        # Evasive variant
+        repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[10],
+            mutations=[{"type": "swap"}],
+            confidence_before=0.95,
+            confidence_after=0.30,
+            modification_pct=3.0,
+        )
+        # Non-evasive variant
+        repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[20],
+            mutations=[{"type": "insert"}],
+            confidence_before=0.95,
+            confidence_after=0.80,
+            modification_pct=1.0,
+        )
+
+        # Default: evasion_only=True, unused_only=True
+        vault = repo.get_vault()
+        assert len(vault) == 1
+        assert vault[0].achieved_evasion is True
+
+        # Get all (including non-evasive)
+        vault_all = repo.get_vault(evasion_only=False)
+        assert len(vault_all) == 2
+
+    def test_mark_retrained(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        self._create_sample(db_session, "a" * 64)
+        cycle = repo.start_cycle(cycle_number=1)
+
+        v = repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[10],
+            mutations=[{"type": "swap"}],
+            confidence_before=0.95,
+            confidence_after=0.30,
+            modification_pct=3.0,
+        )
+
+        # Create a real TrainingRun to satisfy the FK constraint
+        tr = TrainingRun()
+        db_session.add(tr)
+        db_session.flush()
+
+        count = repo.mark_retrained([v.id], training_run_id=tr.id)
+        assert count == 1
+
+        db_session.refresh(v)
+        assert v.used_in_retraining is True
+        assert v.retraining_run_id == tr.id
+
+        # Should no longer appear in vault (unused_only=True)
+        vault = repo.get_vault()
+        assert len(vault) == 0
+
+    def test_vulnerability_report(self, db_session: Session):
+        repo = AdversarialRepo(db_session)
+        self._create_sample(db_session, "a" * 64, family="Emotet")
+        self._create_sample(db_session, "b" * 64, family="AgentTesla")
+        cycle = repo.start_cycle(cycle_number=1)
+
+        # Two Emotet variants: one evasive, one not
+        repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[10],
+            mutations=[{"type": "swap"}],
+            confidence_before=0.95,
+            confidence_after=0.30,
+            modification_pct=3.0,
+        )
+        repo.store_variant(
+            parent_sha256="a" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[20],
+            mutations=[{"type": "insert"}],
+            confidence_before=0.90,
+            confidence_after=0.80,
+            modification_pct=1.0,
+        )
+        # One AgentTesla variant: evasive
+        repo.store_variant(
+            parent_sha256="b" * 64,
+            cycle_id=cycle.id,
+            mutated_tokens=[30],
+            mutations=[{"type": "nop"}],
+            confidence_before=0.85,
+            confidence_after=0.40,
+            modification_pct=2.0,
+        )
+
+        report = repo.vulnerability_report()
+        assert len(report) == 2
+
+        report_by_family = {r["family"]: r for r in report}
+        emotet = report_by_family["Emotet"]
+        assert emotet["total_attacks"] == 2
+        assert emotet["evasions"] == 1
+        assert abs(emotet["evasion_rate"] - 0.5) < 1e-6
+
+        agent = report_by_family["AgentTesla"]
+        assert agent["total_attacks"] == 1
+        assert agent["evasions"] == 1
+        assert abs(agent["evasion_rate"] - 1.0) < 1e-6
