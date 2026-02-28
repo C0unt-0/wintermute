@@ -1,0 +1,33 @@
+{
+  "pipeline_config": {
+    "max_seq_length": 2048,
+    "seed": 42,
+    "shuffle": true
+  },
+  "x_shape": [
+    500,
+    2048
+  ],
+  "y_shape": [
+    500
+  ],
+  "vocab_size": 52,
+  "num_classes": 2,
+  "class_distribution": {
+    "0": 250,
+    "1": 250
+  },
+  "sources": {
+    "synthetic": {
+      "samples": 500,
+      "skipped": 0,
+      "failed": 0,
+      "elapsed_s": 0.04,
+      "families": {
+        "safe": 250,
+        "malicious": 250
+      },
+      "errors": []
+    }
+  }
+}

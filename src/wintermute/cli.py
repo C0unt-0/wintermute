@@ -29,10 +29,14 @@ app = typer.Typer(
 
 data_app = typer.Typer(
     name="data",
-    help="Data pipeline commands (build, download, synthetic)",
+    help="Data pipeline commands (build, download, synthetic, etl)",
     no_args_is_help=True,
 )
 app.add_typer(data_app, name="data")
+
+# Register ETL pipeline commands
+from wintermute.data.etl.cli_etl import register_etl_commands
+register_etl_commands(data_app)
 
 
 # ---------------------------------------------------------------------------

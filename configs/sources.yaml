@@ -1,0 +1,63 @@
+# Wintermute ETL Pipeline Configuration
+# ======================================
+# Run: wintermute data etl
+# Docs: etl.md
+
+pipeline:
+  out_dir: "data/processed"
+  max_seq_length: 2048
+  shuffle: true
+  seed: 42
+  pad_token: "<PAD>"
+  unk_token: "<UNK>"
+  cls_token: "<CLS>"
+  sep_token: "<SEP>"
+  mask_token: "<MASK>"
+
+sources:
+  synthetic:
+    enabled: true
+    n_samples: 500
+    max_seq_length: 2048
+    seed: 42
+
+  pe_files:
+    enabled: false
+    data_dir: "data/raw"
+    min_opcodes: 10
+
+  ms_dataset:
+    enabled: false
+    data_dir: "data/ms-malware"
+    labels_file: "labels.csv"
+    max_samples: null
+
+  malware_bazaar:
+    enabled: false
+    api_key: ""
+    cache_dir: "data/bazaar"
+    delay: 1.0
+    min_opcodes: 10
+    families:
+      - name: AgentTesla
+        signature: AgentTesla
+        limit: 100
+      - name: Emotet
+        signature: Emotet
+        limit: 100
+      - name: TrickBot
+        signature: TrickBot
+        limit: 100
+      - name: Formbook
+        signature: Formbook
+        limit: 100
+      - name: Lokibot
+        signature: Lokibot
+        limit: 100
+
+  asm_directory:
+    enabled: false
+    data_dir: "data/bazaar"
+    format: "auto"
+    min_opcodes: 10
+    max_samples_per_family: null
