@@ -10,8 +10,10 @@ The heavy lifting is done asynchronously by the Celery worker in
 src/wintermute/engine/worker.py.
 """
 
+import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket
@@ -22,12 +24,31 @@ from celery.result import AsyncResult
 
 from src.wintermute.engine.worker import analyze_binary_task, celery_app
 from api.routers import dashboard, training, adversarial, pipeline, vault
+from api.routers import db_endpoints
 from api.ws import ws_manager
+
+logger = logging.getLogger("wintermute.api")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: initialise DB on startup."""
+    try:
+        from wintermute.db.engine import create_db_engine, init_db
+
+        create_db_engine()
+        init_db()
+        logger.info("Database initialised successfully.")
+    except Exception as exc:
+        logger.warning("Database initialisation failed (%s). API will run without DB.", exc)
+    yield
+
 
 app = FastAPI(
     title="Wintermute Threat Intelligence API",
     description="Malware analysis platform with real-time training, adversarial testing, and binary scanning.",
     version="4.0.0",
+    lifespan=lifespan,
 )
 
 # ── Include routers ──────────────────────────────────────────────────────────
@@ -36,6 +57,7 @@ app.include_router(training.router)
 app.include_router(adversarial.router)
 app.include_router(pipeline.router)
 app.include_router(vault.router)
+app.include_router(db_endpoints.router)
 
 UPLOAD_DIR = "/tmp/wintermute_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
