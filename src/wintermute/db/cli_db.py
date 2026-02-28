@@ -30,6 +30,7 @@ def init() -> None:
 def stats() -> None:
     """Show database statistics."""
     from wintermute.db.engine import create_db_engine, get_session
+    from wintermute.db.repos.embeddings import EmbeddingRepo
     from wintermute.db.repos.samples import SampleRepo
     from wintermute.db.repos.scans import ScanRepo
 
@@ -49,18 +50,28 @@ def stats() -> None:
         # Scan stats
         scan_stats = scan_repo.stats()
 
+        # Embedding stats
+        embedding_stats = EmbeddingRepo(session).coverage_stats()
+
         typer.echo(f"\n{'='*50}")
         typer.echo("  DATABASE STATISTICS")
         typer.echo(f"{'='*50}")
         typer.echo(f"\n  Samples: {total_samples}")
-        for fam, count in sorted(families.items()):
-            typer.echo(f"    {fam}: {count}")
-        typer.echo("\n  Sources:")
-        for src, count in sorted(sources.items()):
-            typer.echo(f"    {src}: {count}")
+        if families:
+            for fam, count in sorted(families.items()):
+                typer.echo(f"    {fam}: {count}")
+        if sources:
+            typer.echo("\n  Sources:")
+            for src, count in sorted(sources.items()):
+                typer.echo(f"    {src}: {count}")
         typer.echo(f"\n  Scans: {scan_stats.get('total_scans', 0)}")
         typer.echo(
             f"  Mean confidence: {scan_stats.get('avg_confidence', 0):.2f}"
+        )
+        typer.echo("\n  Embeddings:")
+        typer.echo(
+            f"    Coverage: {embedding_stats.get('with_embedding', 0)}"
+            f"/{embedding_stats.get('total_samples', 0)}"
         )
         typer.echo(f"{'='*50}\n")
 
@@ -155,8 +166,12 @@ def models(
     with get_session() as session:
         repo = ModelRepo(session)
         if promote:
-            repo.promote(promote)
-            typer.echo(f"Model {promote} promoted to active.")
+            try:
+                repo.promote(promote)
+                typer.echo(f"Model {promote} promoted to active.")
+            except ValueError as e:
+                typer.echo(f"Error: {e}", err=True)
+                raise typer.Exit(1)
             return
 
         model_list = repo.history(limit=20)

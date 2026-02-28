@@ -148,13 +148,13 @@ class TestDbInit:
 
 
 class TestDbStats:
-    def test_stats_empty(self, setup_db, monkeypatch):
+    def test_stats_empty(self, setup_db):
         result = runner.invoke(app, ["db", "stats"])
         assert result.exit_code == 0
         assert "Samples: 0" in result.output
         assert "Scans: 0" in result.output
 
-    def test_stats_with_data(self, setup_db, monkeypatch):
+    def test_stats_with_data(self, setup_db):
         _seed_samples()
         _seed_scans()
 
@@ -169,24 +169,24 @@ class TestDbStats:
 
 
 class TestDbSamples:
-    def test_samples_empty(self, setup_db, monkeypatch):
+    def test_samples_empty(self, setup_db):
         result = runner.invoke(app, ["db", "samples"])
         assert result.exit_code == 0
         assert "No samples found" in result.output
 
-    def test_samples_all(self, setup_db, monkeypatch):
+    def test_samples_all(self, setup_db):
         _seed_samples()
         result = runner.invoke(app, ["db", "samples"])
         assert result.exit_code == 0
         assert "Found 3 sample(s)" in result.output
 
-    def test_samples_filter_family(self, setup_db, monkeypatch):
+    def test_samples_filter_family(self, setup_db):
         _seed_samples()
         result = runner.invoke(app, ["db", "samples", "--family", "Emotet"])
         assert result.exit_code == 0
         assert "Found 2 sample(s)" in result.output
 
-    def test_samples_filter_source(self, setup_db, monkeypatch):
+    def test_samples_filter_source(self, setup_db):
         _seed_samples()
         result = runner.invoke(
             app, ["db", "samples", "--source", "virusshare"]
@@ -194,7 +194,7 @@ class TestDbSamples:
         assert result.exit_code == 0
         assert "Found 1 sample(s)" in result.output
 
-    def test_samples_filter_min_opcodes(self, setup_db, monkeypatch):
+    def test_samples_filter_min_opcodes(self, setup_db):
         _seed_samples()
         result = runner.invoke(
             app, ["db", "samples", "--min-opcodes", "600"]
@@ -202,7 +202,7 @@ class TestDbSamples:
         assert result.exit_code == 0
         assert "Found 1 sample(s)" in result.output
 
-    def test_samples_limit(self, setup_db, monkeypatch):
+    def test_samples_limit(self, setup_db):
         _seed_samples()
         result = runner.invoke(app, ["db", "samples", "--limit", "1"])
         assert result.exit_code == 0
@@ -210,26 +210,26 @@ class TestDbSamples:
 
 
 class TestDbScans:
-    def test_scans_empty(self, setup_db, monkeypatch):
+    def test_scans_empty(self, setup_db):
         result = runner.invoke(app, ["db", "scans"])
         assert result.exit_code == 0
         assert "No scan results found" in result.output
 
-    def test_scans_recent(self, setup_db, monkeypatch):
+    def test_scans_recent(self, setup_db):
         _seed_samples()
         _seed_scans()
         result = runner.invoke(app, ["db", "scans", "--recent", "5"])
         assert result.exit_code == 0
         assert "Found 2 scan(s)" in result.output
 
-    def test_scans_by_sha256(self, setup_db, monkeypatch):
+    def test_scans_by_sha256(self, setup_db):
         _seed_samples()
         _seed_scans()
         result = runner.invoke(app, ["db", "scans", "--sha256", "a" * 64])
         assert result.exit_code == 0
         assert "Found 1 scan(s)" in result.output
 
-    def test_scans_uncertain(self, setup_db, monkeypatch):
+    def test_scans_uncertain(self, setup_db):
         _seed_samples()
         _seed_scans()
         result = runner.invoke(app, ["db", "scans", "--uncertain", "0.6"])
@@ -239,12 +239,12 @@ class TestDbScans:
 
 
 class TestDbModels:
-    def test_models_empty(self, setup_db, monkeypatch):
+    def test_models_empty(self, setup_db):
         result = runner.invoke(app, ["db", "models"])
         assert result.exit_code == 0
         assert "No models registered" in result.output
 
-    def test_models_list(self, setup_db, monkeypatch):
+    def test_models_list(self, setup_db):
         _seed_models()
         result = runner.invoke(app, ["db", "models"])
         assert result.exit_code == 0
@@ -252,7 +252,7 @@ class TestDbModels:
         assert "v2.0.0" in result.output
         assert "[STAGED]" in result.output
 
-    def test_models_promote(self, setup_db, monkeypatch):
+    def test_models_promote(self, setup_db):
         model_ids = _seed_models()
         result = runner.invoke(
             app, ["db", "models", "--promote", model_ids[0]]
@@ -264,15 +264,20 @@ class TestDbModels:
         result = runner.invoke(app, ["db", "models"])
         assert "[ACTIVE]" in result.output
 
+    def test_models_promote_invalid(self, setup_db):
+        result = runner.invoke(app, ["db", "models", "--promote", "nonexistent-uuid"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "error" in result.output.lower()
+
 
 class TestDbVault:
-    def test_vault_empty(self, setup_db, monkeypatch):
+    def test_vault_empty(self, setup_db):
         result = runner.invoke(app, ["db", "vault"])
         assert result.exit_code == 0
         assert "ADVERSARIAL VAULT" in result.output
         assert "Variants: 0" in result.output
 
-    def test_vault_with_data(self, setup_db, monkeypatch):
+    def test_vault_with_data(self, setup_db):
         _seed_samples()
         with get_session() as session:
             repo = AdversarialRepo(session)
@@ -294,14 +299,14 @@ class TestDbVault:
 
 
 class TestDbEmbed:
-    def test_embed_empty(self, setup_db, monkeypatch):
+    def test_embed_empty(self, setup_db):
         result = runner.invoke(app, ["db", "embed"])
         assert result.exit_code == 0
         assert "Embedding Coverage" in result.output
         assert "Total samples: 0" in result.output
         assert "Coverage: 0.0%" in result.output
 
-    def test_embed_with_data(self, setup_db, monkeypatch):
+    def test_embed_with_data(self, setup_db):
         _seed_samples()
         # Add an embedding to one sample
         with get_session() as session:
@@ -318,18 +323,18 @@ class TestDbEmbed:
 
 
 class TestDbSimilar:
-    def test_similar_sample_not_found(self, setup_db, monkeypatch):
+    def test_similar_sample_not_found(self, setup_db):
         result = runner.invoke(app, ["db", "similar", "z" * 64])
         assert result.exit_code == 1
         assert "Sample not found" in result.output
 
-    def test_similar_no_embedding(self, setup_db, monkeypatch):
+    def test_similar_no_embedding(self, setup_db):
         _seed_samples()
         result = runner.invoke(app, ["db", "similar", "a" * 64])
         assert result.exit_code == 1
         assert "no embedding" in result.output
 
-    def test_similar_with_embedding(self, setup_db, monkeypatch):
+    def test_similar_with_embedding(self, setup_db):
         _seed_samples()
         dim = 8
 
