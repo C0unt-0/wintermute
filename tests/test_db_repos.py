@@ -14,6 +14,7 @@ from wintermute.db.repos.samples import SampleRepo
 from wintermute.db.repos.scans import ScanRepo
 from wintermute.db.repos.models_repo import ModelRepo
 from wintermute.db.repos.adversarial import AdversarialRepo
+from wintermute.db.repos.embeddings import EmbeddingRepo
 
 
 # ------------------------------------------------------------------
@@ -801,7 +802,6 @@ class TestEmbeddingRepo:
 
     def test_coverage_stats_no_embeddings(self, db_session: Session):
         """coverage_stats works without vector extension."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         for i in range(3):
             db_session.add(
@@ -822,7 +822,6 @@ class TestEmbeddingRepo:
         assert stats["pct_covered"] == 0.0
 
     def test_coverage_stats_with_embeddings(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -832,7 +831,6 @@ class TestEmbeddingRepo:
         assert stats["pct_covered"] == 100.0
 
     def test_coverage_stats_partial(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=3)
         # Add two samples *without* embeddings
@@ -850,7 +848,6 @@ class TestEmbeddingRepo:
         assert abs(stats["pct_covered"] - 60.0) < 1e-6
 
     def test_coverage_stats_empty_db(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         repo = EmbeddingRepo(db_session)
         stats = repo.coverage_stats()
@@ -860,7 +857,6 @@ class TestEmbeddingRepo:
     # -- find_nearest ---------------------------------------------------
 
     def test_find_nearest(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -881,7 +877,6 @@ class TestEmbeddingRepo:
 
     def test_find_nearest_ordering(self, db_session: Session):
         """Results are sorted by ascending distance."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -892,7 +887,6 @@ class TestEmbeddingRepo:
         assert distances == sorted(distances)
 
     def test_find_nearest_with_family_filter(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -905,7 +899,6 @@ class TestEmbeddingRepo:
             assert r["family"] == "Emotet"
 
     def test_find_nearest_with_max_distance(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -917,7 +910,6 @@ class TestEmbeddingRepo:
             assert r["distance"] <= 0.001
 
     def test_find_nearest_empty_db(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         repo = EmbeddingRepo(db_session)
         results = repo.find_nearest([0.0] * 8, k=5)
@@ -925,7 +917,6 @@ class TestEmbeddingRepo:
 
     def test_find_nearest_no_embeddings(self, db_session: Session):
         """Samples exist but none have embeddings."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         db_session.add(
             Sample(sha256="a" * 64, family="test", label=0, source="test")
@@ -939,7 +930,6 @@ class TestEmbeddingRepo:
     # -- find_nearest_with_scans ----------------------------------------
 
     def test_find_nearest_with_scans(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=3)
 
@@ -976,7 +966,6 @@ class TestEmbeddingRepo:
 
     def test_find_nearest_with_scans_no_scans(self, db_session: Session):
         """Neighbours with no scan results should have None for scan fields."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=2)
         repo = EmbeddingRepo(db_session)
@@ -988,7 +977,6 @@ class TestEmbeddingRepo:
             assert r["last_scan_date"] is None
 
     def test_find_nearest_with_scans_empty(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         repo = EmbeddingRepo(db_session)
         results = repo.find_nearest_with_scans([0.0] * 8, k=5)
@@ -997,7 +985,6 @@ class TestEmbeddingRepo:
     # -- cluster_family -------------------------------------------------
 
     def test_cluster_family(self, db_session: Session):
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -1005,15 +992,15 @@ class TestEmbeddingRepo:
         results = repo.cluster_family("Emotet", k=3)
         assert len(results) <= 3
         assert len(results) > 0
-        # Should return dicts with sha256, label, distance
+        # Should return dicts with sha256, family, label, distance
         for r in results:
             assert "sha256" in r
+            assert "family" in r
             assert "label" in r
             assert "distance" in r
 
     def test_cluster_family_ordering(self, db_session: Session):
         """Results are sorted by ascending centroid distance."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -1024,7 +1011,6 @@ class TestEmbeddingRepo:
 
     def test_cluster_family_empty(self, db_session: Session):
         """No samples for the requested family."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         self._add_samples_with_embeddings(db_session, n=5)
         repo = EmbeddingRepo(db_session)
@@ -1033,7 +1019,6 @@ class TestEmbeddingRepo:
 
     def test_cluster_family_no_embeddings(self, db_session: Session):
         """Family exists but has no embeddings."""
-        from wintermute.db.repos.embeddings import EmbeddingRepo
 
         db_session.add(
             Sample(sha256="a" * 64, family="Emotet", label=1, source="test")

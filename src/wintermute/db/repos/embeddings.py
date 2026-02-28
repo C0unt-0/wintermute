@@ -19,6 +19,8 @@ def _cosine_distance(a: list[float], b: tuple[float, ...] | list[float]) -> floa
 
     Returns a value in [0, 2] where 0 means identical direction.
     """
+    if len(a) != len(b):
+        raise ValueError(f"Vector dimension mismatch: {len(a)} vs {len(b)}")
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
@@ -115,46 +117,44 @@ class EmbeddingRepo:
         family: str | None,
         max_distance: float | None,
     ) -> list[dict]:
-        """Nearest-neighbour search using sqlite-vec ``vec_distance_cosine``."""
+        """Nearest-neighbour search using sqlite-vec ``vec_distance_cosine``.
+
+        Uses a single SQL query instead of per-row distance calls.
+        """
         dim = len(query_vec)
         query_blob = struct.pack(f"{dim}f", *query_vec)
 
-        stmt = select(
-            Sample.sha256,
-            Sample.family,
-            Sample.label,
-        ).where(Sample.embedding.isnot(None))
+        sql = """
+            SELECT sha256, family, label,
+                   vec_distance_cosine(embedding, :query_blob) AS distance
+            FROM samples
+            WHERE embedding IS NOT NULL
+        """
+        params: dict = {"query_blob": query_blob, "k": k}
 
         if family is not None:
-            stmt = stmt.where(Sample.family == family)
+            sql += " AND family = :family"
+            params["family"] = family
 
-        samples = self._session.execute(stmt).all()
-        if not samples:
-            return []
+        sql += " ORDER BY distance LIMIT :k"
 
-        results: list[dict] = []
-        for sha256, fam, label in samples:
-            # Retrieve raw embedding for this sample
-            emb_row = self._session.execute(
-                select(Sample.embedding).where(Sample.sha256 == sha256)
-            ).scalar()
-            if emb_row is None:
-                continue
-            dist_row = self._session.execute(
-                text("SELECT vec_distance_cosine(:a, :b)"),
-                {"a": emb_row, "b": query_blob},
-            ).scalar()
-            if dist_row is None:
-                continue
-            dist = float(dist_row)
-            if max_distance is not None and dist > max_distance:
-                continue
-            results.append(
-                {"sha256": sha256, "family": fam, "label": label, "distance": dist}
-            )
+        rows = self._session.execute(text(sql), params).fetchall()
 
-        results.sort(key=lambda r: r["distance"])
-        return results[:k]
+        results = [
+            {
+                "sha256": r.sha256,
+                "family": r.family,
+                "label": r.label,
+                "distance": float(r.distance),
+            }
+            for r in rows
+        ]
+
+        # Filter by max_distance in Python (SQLite alias visibility varies)
+        if max_distance is not None:
+            results = [r for r in results if r["distance"] <= max_distance]
+
+        return results
 
     # -- pgvector path ----------------------------------------------------
 
@@ -165,26 +165,38 @@ class EmbeddingRepo:
         family: str | None,
         max_distance: float | None,
     ) -> list[dict]:
-        """Nearest-neighbour search using pgvector ``<=>`` operator."""
+        """Nearest-neighbour search using pgvector ``<=>`` operator.
+
+        Uses parameterized queries to avoid SQL injection.
+        """
+        # Validate all values are numeric before building the vector literal
+        for i, v in enumerate(query_vec):
+            if not isinstance(v, (int, float)):
+                raise ValueError(
+                    f"query_vec[{i}] must be int or float, got {type(v).__name__}"
+                )
+
         vec_literal = "[" + ",".join(str(v) for v in query_vec) + "]"
-        dist_expr = text(f"embedding <=> '{vec_literal}'::vector")
 
-        stmt = (
-            select(
-                Sample.sha256,
-                Sample.family,
-                Sample.label,
-                dist_expr.label("distance"),
-            )
-            .where(Sample.embedding.isnot(None))
-        )
+        sql = """
+            SELECT sha256, family, label,
+                   embedding <=> :query_vec::vector AS distance
+            FROM samples
+            WHERE embedding IS NOT NULL
+        """
+        params: dict = {"query_vec": vec_literal, "k": k}
+
         if family is not None:
-            stmt = stmt.where(Sample.family == family)
-        if max_distance is not None:
-            stmt = stmt.where(dist_expr <= max_distance)
+            sql += " AND family = :family"
+            params["family"] = family
 
-        stmt = stmt.order_by(text("distance")).limit(k)
-        rows = self._session.execute(stmt).all()
+        if max_distance is not None:
+            sql += " AND (embedding <=> :query_vec::vector) <= :max_distance"
+            params["max_distance"] = max_distance
+
+        sql += " ORDER BY distance LIMIT :k"
+
+        rows = self._session.execute(text(sql), params).fetchall()
         return [
             {
                 "sha256": row.sha256,
@@ -311,6 +323,7 @@ class EmbeddingRepo:
             results.append(
                 {
                     "sha256": sample.sha256,
+                    "family": sample.family,
                     "label": sample.label,
                     "distance": dist,
                 }
