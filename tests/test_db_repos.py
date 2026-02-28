@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -193,8 +194,6 @@ class TestSampleRepo:
         assert sample is not None
         assert sample.embedding is not None
         # Verify round-trip
-        import struct
-
         n = len(embedding)
         unpacked = list(struct.unpack(f"{n}f", sample.embedding))
         assert len(unpacked) == 4
@@ -216,6 +215,16 @@ class TestSampleRepo:
         sample = repo.get("a" * 64)
         assert sample is not None
         assert sample.embedding is not None
+
+    def test_set_embedding_missing_sample(self, db_session: Session):
+        repo = SampleRepo(db_session)
+        with pytest.raises(ValueError):
+            repo.set_embedding("z" * 64, [0.1] * 256)
+
+    def test_bulk_insert_empty(self, db_session: Session):
+        repo = SampleRepo(db_session)
+        count = repo.bulk_insert([])
+        assert count == 0
 
 
 # ==================================================================

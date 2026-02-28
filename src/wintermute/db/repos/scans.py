@@ -97,12 +97,11 @@ class ScanRepo:
 
     def stats(self, since: datetime | None = None) -> dict:
         """Aggregate stats: total scans, family distribution, avg confidence."""
-        base = select(ScanResult)
+        filters = []
         if since is not None:
-            base = base.where(ScanResult.scanned_at >= since)
+            filters.append(ScanResult.scanned_at >= since)
 
-        # Total scans
-        count_stmt = select(func.count()).select_from(base.subquery())
+        count_stmt = select(func.count()).select_from(ScanResult).where(*filters)
         total: int = self._session.execute(count_stmt).scalar() or 0
 
         if total == 0:
@@ -112,18 +111,14 @@ class ScanRepo:
                 "avg_confidence": 0.0,
             }
 
-        # Average confidence
-        avg_stmt = select(func.avg(ScanResult.confidence))
-        if since is not None:
-            avg_stmt = avg_stmt.where(ScanResult.scanned_at >= since)
+        avg_stmt = select(func.avg(ScanResult.confidence)).where(*filters)
         avg_conf: float = self._session.execute(avg_stmt).scalar() or 0.0
 
-        # Family distribution
-        family_stmt = select(ScanResult.predicted_family, func.count()).group_by(
-            ScanResult.predicted_family
+        family_stmt = (
+            select(ScanResult.predicted_family, func.count())
+            .where(*filters)
+            .group_by(ScanResult.predicted_family)
         )
-        if since is not None:
-            family_stmt = family_stmt.where(ScanResult.scanned_at >= since)
         rows = self._session.execute(family_stmt).all()
         family_dist = {family: count for family, count in rows}
 
