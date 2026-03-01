@@ -9,4 +9,5 @@ from wintermute.data.etl.sources.pe_files import PEFilesSource  # noqa: F401
 from wintermute.data.etl.sources.synthetic import SyntheticSource  # noqa: F401
 from wintermute.data.etl.sources.threatfox import ThreatFoxSource  # noqa: F401
 from wintermute.data.etl.sources.urlhaus import URLhausSource  # noqa: F401
+from wintermute.data.etl.sources.virusshare import VirusShareSource  # noqa: F401
 from wintermute.data.etl.sources.virustotal import VirusTotalSource  # noqa: F401

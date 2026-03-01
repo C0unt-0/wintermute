@@ -1,6 +1,7 @@
 """test_etl_sources.py — Tests for individual ETL data sources.
 
-Tests for MalShareSource, URLhausSource, and VirusTotalSource with mocked HTTP interactions.
+Tests for MalShareSource, URLhausSource, VirusTotalSource, and VirusShareSource
+with mocked HTTP interactions and filesystem fixtures.
 """
 
 from __future__ import annotations
@@ -1123,3 +1124,163 @@ class TestEmberDatasetSource:
         samples, result = src.run()
         assert result.samples_extracted == 0
         assert len(samples) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestVirusShareSource
+# ═══════════════════════════════════════════════════════════════════════════
+class TestVirusShareSource:
+    """Tests for the VirusShare hash-list cross-referencing ETL data source."""
+
+    FAKE_SHA256 = "a" * 64
+    FAKE_SHA256_B = "b" * 64
+    FAKE_MD5 = "d" * 32
+    FAKE_OPCODES = ["mov", "push", "xor", "call", "ret", "add", "sub", "cmp", "jmp", "nop", "test"]
+
+    def test_virusshare_registration(self):
+        """Verify 'virusshare' is registered in the source registry."""
+        available = SourceRegistry.available()
+        assert "virusshare" in available
+
+    def test_virusshare_missing_hash_dir(self, tmp_path):
+        """validate_config returns error when hash_dir does not exist."""
+        src = SourceRegistry.create(
+            "virusshare",
+            config={"hash_dir": str(tmp_path / "nonexistent")},
+        )
+        errors = src.validate_config()
+        assert len(errors) == 1
+        assert "does not exist" in errors[0]
+
+    def test_virusshare_load_hashes(self, tmp_path):
+        """Create tmp hash files (.md5, .txt), verify hashes loaded correctly, comments skipped."""
+        from wintermute.data.etl.sources.virusshare import VirusShareSource
+
+        hash_dir = tmp_path / "hashes"
+        hash_dir.mkdir()
+
+        # .md5 file with MD5 hashes and comments
+        md5_file = hash_dir / "VirusShare_00000.md5"
+        md5_file.write_text(
+            "\n".join(
+                [
+                    "# VirusShare.com hash list",
+                    "# Comment line",
+                    self.FAKE_MD5,
+                    "e" * 32,
+                    "",
+                    "not-a-hash",
+                ]
+            )
+        )
+
+        # .txt file with SHA-256 hashes
+        txt_file = hash_dir / "extra_hashes.txt"
+        txt_file.write_text(
+            "\n".join(
+                [
+                    "# SHA-256 hashes",
+                    self.FAKE_SHA256,
+                    self.FAKE_SHA256_B,
+                    "invalid_hash_value",
+                ]
+            )
+        )
+
+        loaded = VirusShareSource._load_hashes(hash_dir, max_samples=None)
+        # Should include: 2 MD5 hashes + 2 SHA-256 hashes = 4 total
+        # Comments, blanks, and invalid hashes should be skipped
+        assert len(loaded) == 4
+        assert self.FAKE_MD5 in loaded
+        assert "e" * 32 in loaded
+        assert self.FAKE_SHA256 in loaded
+        assert self.FAKE_SHA256_B in loaded
+
+    def test_virusshare_extract_with_cached_asm(self, tmp_path):
+        """Create hash file + cached .asm, verify RawSample output."""
+        # Create hash_dir with a hash file
+        hash_dir = tmp_path / "hashes"
+        hash_dir.mkdir()
+        hash_file = hash_dir / "VirusShare_00000.md5"
+        hash_file.write_text(self.FAKE_SHA256 + "\n")
+
+        # Create cache_dir with matching .asm
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        asm_file = cache_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        src = SourceRegistry.create(
+            "virusshare",
+            config={
+                "hash_dir": str(hash_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+                "max_samples": 10,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 1
+        sample = samples[0]
+        assert sample.opcodes == self.FAKE_OPCODES
+        assert sample.label == 1
+        assert sample.family == ""
+        assert sample.source_id == self.FAKE_SHA256
+        assert sample.metadata == {"dataset": "virusshare"}
+
+    def test_virusshare_skips_uncached(self, tmp_path):
+        """Hash in file but no cached .asm results in skip."""
+        hash_dir = tmp_path / "hashes"
+        hash_dir.mkdir()
+        hash_file = hash_dir / "hashes.txt"
+        hash_file.write_text(self.FAKE_SHA256 + "\n" + self.FAKE_SHA256_B + "\n")
+
+        # Empty cache directory
+        cache_dir = tmp_path / "empty_cache"
+        cache_dir.mkdir()
+
+        src = SourceRegistry.create(
+            "virusshare",
+            config={
+                "hash_dir": str(hash_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+                "max_samples": 10,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
+
+    def test_virusshare_max_samples_limit(self, tmp_path):
+        """Respects max_samples config to limit yielded samples."""
+        # Create hash_dir with many hashes
+        hash_dir = tmp_path / "hashes"
+        hash_dir.mkdir()
+        hash_file = hash_dir / "hashes.txt"
+        hash_lines = [f"{i:064x}" for i in range(10)]
+        hash_file.write_text("\n".join(hash_lines))
+
+        # Create cache_dir with matching .asm files for all hashes
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        for h in hash_lines:
+            asm_file = cache_dir / f"{h}.asm"
+            asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        src = SourceRegistry.create(
+            "virusshare",
+            config={
+                "hash_dir": str(hash_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+                "max_samples": 3,
+            },
+        )
+
+        samples, result = src.run()
+        # Should only yield 3 despite 10 being available
+        assert result.samples_extracted == 3
+        assert len(samples) == 3
