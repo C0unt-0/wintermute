@@ -5,6 +5,7 @@ Tests for MalShareSource, URLhausSource, and VirusTotalSource with mocked HTTP i
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -924,3 +925,201 @@ class TestThreatFoxSource:
         samples, result = src.run()
         assert result.samples_extracted == 1
         assert samples[0].family == "Emotet"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestEmberDatasetSource
+# ═══════════════════════════════════════════════════════════════════════════
+class TestEmberDatasetSource:
+    """Tests for the EMBER dataset ETL data source."""
+
+    FAKE_SHA256 = "a" * 64
+    FAKE_SHA256_B = "b" * 64
+    FAKE_SHA256_C = "c" * 64
+    FAKE_OPCODES = ["mov", "push", "xor", "call", "ret", "add", "sub", "cmp", "jmp", "nop", "test"]
+
+    @staticmethod
+    def _make_jsonl_entry(
+        sha256: str,
+        label: int,
+        avclass: str = "",
+    ) -> str:
+        """Build a single JSONL line for an EMBER metadata entry."""
+        entry = {"sha256": sha256, "label": label, "avclass": avclass}
+        return json.dumps(entry)
+
+    def test_ember_registration(self):
+        """Verify 'ember_dataset' is registered in the source registry."""
+        available = SourceRegistry.available()
+        assert "ember_dataset" in available
+
+    def test_ember_missing_data_dir(self, tmp_path):
+        """validate_config returns error when data_dir doesn't exist."""
+        src = SourceRegistry.create(
+            "ember_dataset",
+            config={"data_dir": str(tmp_path / "nonexistent")},
+        )
+        errors = src.validate_config()
+        assert len(errors) == 1
+        assert "does not exist" in errors[0]
+
+    def test_ember_no_jsonl_files(self, tmp_path):
+        """validate_config returns error when data_dir exists but has no .jsonl files."""
+        data_dir = tmp_path / "ember_empty"
+        data_dir.mkdir()
+        # Create a non-JSONL file to ensure it's not counted
+        (data_dir / "readme.txt").write_text("not a jsonl file")
+
+        src = SourceRegistry.create(
+            "ember_dataset",
+            config={"data_dir": str(data_dir)},
+        )
+        errors = src.validate_config()
+        assert len(errors) == 1
+        assert "no .jsonl files" in errors[0]
+
+    def test_ember_extract_with_cached_asm(self, tmp_path):
+        """Create tmp JSONL with sample entries, pre-populate cache dir, verify RawSample."""
+        # Create EMBER data_dir with JSONL file
+        data_dir = tmp_path / "ember"
+        data_dir.mkdir()
+        jsonl_file = data_dir / "train_features_0.jsonl"
+        jsonl_file.write_text(
+            "\n".join(
+                [
+                    self._make_jsonl_entry(self.FAKE_SHA256, label=1, avclass="emotet"),
+                    self._make_jsonl_entry(self.FAKE_SHA256_B, label=0, avclass=""),
+                ]
+            )
+        )
+
+        # Pre-populate cache directory with matching .asm files
+        cache_dir = tmp_path / "bazaar_cache"
+        cache_dir.mkdir()
+        (cache_dir / f"{self.FAKE_SHA256}.asm").write_text("\n".join(self.FAKE_OPCODES))
+        (cache_dir / f"{self.FAKE_SHA256_B}.asm").write_text("\n".join(self.FAKE_OPCODES))
+
+        src = SourceRegistry.create(
+            "ember_dataset",
+            config={
+                "data_dir": str(data_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+                "max_samples": None,
+                "include_benign": True,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 2
+
+        # Verify malicious sample
+        mal_samples = [s for s in samples if s.label == 1]
+        assert len(mal_samples) == 1
+        assert mal_samples[0].family == "emotet"
+        assert mal_samples[0].source_id == self.FAKE_SHA256
+        assert mal_samples[0].metadata == {"dataset": "ember"}
+        assert mal_samples[0].opcodes == self.FAKE_OPCODES
+
+        # Verify benign sample
+        ben_samples = [s for s in samples if s.label == 0]
+        assert len(ben_samples) == 1
+        assert ben_samples[0].family == ""
+        assert ben_samples[0].source_id == self.FAKE_SHA256_B
+
+    def test_ember_skips_unlabeled(self, tmp_path):
+        """Entries with label=-1 are skipped."""
+        data_dir = tmp_path / "ember"
+        data_dir.mkdir()
+        jsonl_file = data_dir / "train_features_0.jsonl"
+        jsonl_file.write_text(
+            "\n".join(
+                [
+                    self._make_jsonl_entry(self.FAKE_SHA256, label=-1, avclass="unknown"),
+                    self._make_jsonl_entry(self.FAKE_SHA256_B, label=1, avclass="emotet"),
+                ]
+            )
+        )
+
+        # Populate cache for both hashes
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        (cache_dir / f"{self.FAKE_SHA256}.asm").write_text("\n".join(self.FAKE_OPCODES))
+        (cache_dir / f"{self.FAKE_SHA256_B}.asm").write_text("\n".join(self.FAKE_OPCODES))
+
+        src = SourceRegistry.create(
+            "ember_dataset",
+            config={
+                "data_dir": str(data_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+                "include_benign": True,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 1
+        # Only the labeled sample should appear
+        assert samples[0].source_id == self.FAKE_SHA256_B
+        assert samples[0].label == 1
+
+    def test_ember_skips_benign_when_disabled(self, tmp_path):
+        """include_benign=false filters out label=0 samples."""
+        data_dir = tmp_path / "ember"
+        data_dir.mkdir()
+        jsonl_file = data_dir / "train_features_0.jsonl"
+        jsonl_file.write_text(
+            "\n".join(
+                [
+                    self._make_jsonl_entry(self.FAKE_SHA256, label=0, avclass=""),
+                    self._make_jsonl_entry(self.FAKE_SHA256_B, label=1, avclass="trickbot"),
+                ]
+            )
+        )
+
+        # Populate cache for both hashes
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        (cache_dir / f"{self.FAKE_SHA256}.asm").write_text("\n".join(self.FAKE_OPCODES))
+        (cache_dir / f"{self.FAKE_SHA256_B}.asm").write_text("\n".join(self.FAKE_OPCODES))
+
+        src = SourceRegistry.create(
+            "ember_dataset",
+            config={
+                "data_dir": str(data_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+                "include_benign": False,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 1
+        # Only the malicious sample should appear
+        assert samples[0].source_id == self.FAKE_SHA256_B
+        assert samples[0].label == 1
+        assert samples[0].family == "trickbot"
+
+    def test_ember_skips_uncached(self, tmp_path):
+        """Hash in JSONL but no cached .asm results in skip."""
+        data_dir = tmp_path / "ember"
+        data_dir.mkdir()
+        jsonl_file = data_dir / "train_features_0.jsonl"
+        jsonl_file.write_text(self._make_jsonl_entry(self.FAKE_SHA256, label=1, avclass="emotet"))
+
+        # Empty cache directory — no .asm files
+        cache_dir = tmp_path / "empty_cache"
+        cache_dir.mkdir()
+
+        src = SourceRegistry.create(
+            "ember_dataset",
+            config={
+                "data_dir": str(data_dir),
+                "cache_dirs": [str(cache_dir)],
+                "min_opcodes": 5,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
