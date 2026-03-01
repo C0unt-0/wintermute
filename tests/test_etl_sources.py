@@ -703,3 +703,224 @@ class TestVirusTotalSource:
         samples, result = src.run()
         assert result.samples_extracted == 0
         assert len(samples) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestThreatFoxSource
+# ═══════════════════════════════════════════════════════════════════════════
+class TestThreatFoxSource:
+    """Tests for the ThreatFox ETL data source."""
+
+    FAKE_SHA256 = "a" * 64
+    FAKE_SHA256_B = "b" * 64
+    FAKE_OPCODES = ["mov", "push", "xor", "call", "ret", "add", "sub", "cmp", "jmp", "nop", "test"]
+
+    def _make_ioc(
+        self,
+        sha256: str,
+        ioc_type: str = "sha256_hash",
+        malware: str = "win.emotet",
+        malware_printable: str = "Emotet",
+        threat_type: str = "payload_delivery",
+        tags: list[str] | None = None,
+    ) -> dict:
+        """Build a fake ThreatFox IOC entry."""
+        return {
+            "ioc_type": ioc_type,
+            "ioc_value": sha256 if ioc_type == "sha256_hash" else f"https://evil.com/{sha256}",
+            "threat_type": threat_type,
+            "malware": malware,
+            "malware_printable": malware_printable,
+            "tags": tags or ["emotet"],
+        }
+
+    def test_threatfox_registration(self):
+        """Verify 'threatfox' is registered in the source registry."""
+        available = SourceRegistry.available()
+        assert "threatfox" in available
+
+    def test_threatfox_no_api_key_required(self):
+        """validate_config returns empty list (no API key needed)."""
+        src = SourceRegistry.create("threatfox", config={})
+        errors = src.validate_config()
+        assert errors == []
+
+    @patch("wintermute.data.etl.sources.threatfox.requests.post")
+    def test_threatfox_extract_with_cached_asm(self, mock_post, tmp_path):
+        """Mock ThreatFox API returning IOCs, pre-populate cache dir, verify RawSample."""
+        # Pre-populate a cache directory with a matching .asm file
+        cache_dir = tmp_path / "bazaar_cache"
+        cache_dir.mkdir(parents=True)
+        asm_file = cache_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        # Mock ThreatFox API response
+        tf_response = MagicMock()
+        tf_response.status_code = 200
+        tf_response.json.return_value = {
+            "query_status": "ok",
+            "data": [
+                self._make_ioc(
+                    self.FAKE_SHA256,
+                    malware="win.emotet",
+                    malware_printable="Emotet",
+                    threat_type="payload_delivery",
+                    tags=["emotet", "epoch5"],
+                ),
+            ],
+        }
+        tf_response.raise_for_status = MagicMock()
+        mock_post.return_value = tf_response
+
+        src = SourceRegistry.create(
+            "threatfox",
+            config={
+                "cache_dirs": [str(cache_dir)],
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "days": 7,
+                "download_missing": False,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 1
+        sample = samples[0]
+        assert sample.opcodes == self.FAKE_OPCODES
+        assert sample.label == 1
+        assert sample.family == "Emotet"
+        assert sample.source_id == self.FAKE_SHA256
+        assert sample.metadata["threat_type"] == "payload_delivery"
+        assert "emotet" in sample.metadata["tags"]
+
+    @patch("wintermute.data.etl.sources.threatfox.requests.post")
+    def test_threatfox_filters_non_hash_iocs(self, mock_post, tmp_path):
+        """Only sha256_hash IOCs are processed; URLs and domains are skipped."""
+        # Pre-populate cache for the hash IOC
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir(parents=True)
+        asm_file = cache_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        # Mix of IOC types — only sha256_hash should be processed
+        tf_response = MagicMock()
+        tf_response.status_code = 200
+        tf_response.json.return_value = {
+            "query_status": "ok",
+            "data": [
+                self._make_ioc(self.FAKE_SHA256, ioc_type="sha256_hash"),
+                self._make_ioc("https://evil.com/malware.exe", ioc_type="url"),
+                self._make_ioc("evil.com", ioc_type="domain"),
+                self._make_ioc("192.168.1.1:443", ioc_type="ip:port"),
+            ],
+        }
+        tf_response.raise_for_status = MagicMock()
+        mock_post.return_value = tf_response
+
+        src = SourceRegistry.create(
+            "threatfox",
+            config={
+                "cache_dirs": [str(cache_dir)],
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "days": 7,
+                "download_missing": False,
+            },
+        )
+
+        samples, result = src.run()
+        # Only the sha256_hash IOC should produce a sample
+        assert result.samples_extracted == 1
+        assert samples[0].source_id == self.FAKE_SHA256
+
+    @patch("wintermute.data.etl.sources.threatfox.requests.post")
+    def test_threatfox_skips_uncached_when_download_disabled(self, mock_post, tmp_path):
+        """No cached .asm and download_missing=false yields zero samples."""
+        # No cache directory populated — no .asm files
+        empty_cache = tmp_path / "empty_cache"
+        empty_cache.mkdir(parents=True)
+
+        tf_response = MagicMock()
+        tf_response.status_code = 200
+        tf_response.json.return_value = {
+            "query_status": "ok",
+            "data": [
+                self._make_ioc(self.FAKE_SHA256),
+                self._make_ioc(self.FAKE_SHA256_B),
+            ],
+        }
+        tf_response.raise_for_status = MagicMock()
+        mock_post.return_value = tf_response
+
+        src = SourceRegistry.create(
+            "threatfox",
+            config={
+                "cache_dirs": [str(empty_cache)],
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "days": 7,
+                "download_missing": False,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
+
+    @patch("wintermute.data.etl.sources.threatfox.requests.post")
+    def test_threatfox_api_error(self, mock_post, tmp_path):
+        """API errors are handled gracefully (no crash, zero samples)."""
+        mock_post.side_effect = requests.RequestException("Connection timeout")
+
+        src = SourceRegistry.create(
+            "threatfox",
+            config={
+                "cache_dirs": [],
+                "delay": 0.0,
+                "max_samples": 10,
+                "days": 7,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
+
+    @patch("wintermute.data.etl.sources.threatfox.requests.post")
+    def test_threatfox_nested_cache_lookup(self, mock_post, tmp_path):
+        """Verify nested cache layout (dir/<family>/<sha256>.asm) is found."""
+        cache_dir = tmp_path / "cache"
+        nested_dir = cache_dir / "Emotet"
+        nested_dir.mkdir(parents=True)
+        asm_file = nested_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        tf_response = MagicMock()
+        tf_response.status_code = 200
+        tf_response.json.return_value = {
+            "query_status": "ok",
+            "data": [
+                self._make_ioc(self.FAKE_SHA256, malware_printable="Emotet"),
+            ],
+        }
+        tf_response.raise_for_status = MagicMock()
+        mock_post.return_value = tf_response
+
+        src = SourceRegistry.create(
+            "threatfox",
+            config={
+                "cache_dirs": [str(cache_dir)],
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "days": 7,
+                "download_missing": False,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 1
+        assert samples[0].family == "Emotet"
