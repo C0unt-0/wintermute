@@ -8,6 +8,7 @@ missing samples via the MalwareBazaar API.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -18,6 +19,8 @@ from wintermute.data.etl.pe_utils import PEProcessor, RateLimiter
 from wintermute.data.etl.registry import register_source
 
 logger = logging.getLogger("wintermute.data.etl")
+
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 THREATFOX_API_URL = "https://threatfox-api.abuse.ch/api/v1/"
 MALWARE_BAZAAR_API_URL = "https://mb-api.abuse.ch/api/v1/"
@@ -94,6 +97,9 @@ class ThreatFoxSource(DataSource):
             limiter.wait()
 
             sha256 = ioc["ioc_value"].strip().lower()
+            if not _SHA256_RE.match(sha256):
+                logger.warning("Invalid SHA-256 in ThreatFox IOC: %s — skipping", sha256[:20])
+                continue
             malware_printable = ioc.get("malware_printable", "") or ""
             threat_type = ioc.get("threat_type", "") or ""
             tags = ioc.get("tags") or []

@@ -93,7 +93,9 @@ class VirusTotalSource(DataSource):
             stats = attrs.get("last_analysis_stats", {})
             malicious = stats.get("malicious", 0)
             undetected = stats.get("undetected", 0)
-            total = malicious + undetected
+            harmless = stats.get("harmless", 0)
+            suspicious = stats.get("suspicious", 0)
+            total = malicious + undetected + harmless + suspicious
             if total == 0:
                 logger.debug(
                     "[%d/%d] No analysis stats for %s — skipping",
@@ -117,9 +119,9 @@ class VirusTotalSource(DataSource):
                 )
                 continue
 
-            # Determine family name and label
+            # Determine family name (label is always 1 since low-ratio samples are filtered above)
             family = attrs.get("popular_threat_name", "") or ""
-            label = 1 if detection_ratio >= min_detection_ratio else 0
+            label = 1
 
             # Try to read opcodes from cache directories
             opcodes = self._find_cached_asm(sha256, cache_dirs)

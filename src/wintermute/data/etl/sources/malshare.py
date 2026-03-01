@@ -128,8 +128,8 @@ class MalShareSource(DataSource):
 
         hashes: list[str] = []
         for entry in data:
-            sha256 = entry.get("sha256") or entry.get("md5", "")
-            if sha256:
+            sha256 = entry.get("sha256", "")
+            if sha256 and len(sha256) == 64:
                 hashes.append(sha256)
             if len(hashes) >= max_samples:
                 break
