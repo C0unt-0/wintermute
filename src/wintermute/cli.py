@@ -38,6 +38,10 @@ app.add_typer(data_app, name="data")
 from wintermute.data.etl.cli_etl import register_etl_commands
 register_etl_commands(data_app)
 
+# Register database commands
+from wintermute.db.cli_db import register_db_commands
+register_db_commands(app)
+
 
 # ---------------------------------------------------------------------------
 # Default family map (MS Malware Classification dataset)
@@ -116,6 +120,48 @@ def scan(
     icon = "✅" if pred == 0 else "🚨"
     typer.echo(f"  {icon}  {label.upper():<12}  Confidence: {conf:.1f}%")
     typer.echo(f"{'='*50}\n")
+
+    # --- Optional DB persistence ---
+    try:
+        from wintermute.db.engine import get_engine, get_session
+        from wintermute.db.repos.scans import ScanRepo
+        from wintermute.db.repos.samples import SampleRepo
+
+        if get_engine() is not None:
+            file_sha = hashlib.sha256(target_path.read_bytes()).hexdigest()
+            file_size = target_path.stat().st_size
+            probs_dict = {
+                str(i): float(probs[0, i].item()) for i in range(probs.shape[1])
+            }
+
+            with get_session() as session:
+                # Upsert the sample
+                SampleRepo(session).upsert(
+                    sha256=file_sha,
+                    family=label,
+                    label=pred,
+                    source="cli_scan",
+                    file_type=target_path.suffix.lstrip(".").upper() or "UNKNOWN",
+                    file_size_bytes=file_size,
+                    opcode_count=len(opcodes),
+                )
+
+                # Record the scan result
+                ScanRepo(session).record(
+                    sha256=file_sha,
+                    filename=target_path.name,
+                    file_size_bytes=file_size,
+                    predicted_family=label,
+                    predicted_label=pred,
+                    confidence=float(probs[0, pred].item()),
+                    probabilities=probs_dict,
+                    model_version=manifest,
+                )
+    except Exception:
+        import logging
+        logging.getLogger("wintermute.db").debug(
+            "Scan DB persistence failed (best-effort)", exc_info=True
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

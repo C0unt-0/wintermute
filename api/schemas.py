@@ -7,6 +7,8 @@ so callers can POST ``{}`` and get sensible behaviour.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -168,3 +170,63 @@ class VaultSampleDetail(VaultSample):
     original_bytes: str = ""
     mutated_bytes: str = ""
     diff: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Database-backed responses
+# ---------------------------------------------------------------------------
+
+
+class SampleResponse(BaseModel):
+    """A cataloged malware sample."""
+
+    sha256: str
+    family: str
+    label: int
+    source: str
+    file_type: str | None = None
+    file_size_bytes: int | None = None
+    opcode_count: int | None = None
+    created_at: datetime | None = None
+
+
+class ScanHistoryItem(BaseModel):
+    """One row from the scan history."""
+
+    id: str
+    sha256: str
+    filename: str | None = None
+    predicted_family: str
+    predicted_label: int
+    confidence: float
+    model_version: str
+    scanned_at: datetime | None = None
+
+
+class ModelResponse(BaseModel):
+    """A registered model version."""
+
+    id: str
+    version: str
+    architecture: str
+    status: str
+    best_val_macro_f1: float | None = None
+    created_at: datetime | None = None
+    promoted_at: datetime | None = None
+
+
+class StatsResponse(BaseModel):
+    """Aggregate system statistics."""
+
+    total_samples: int = 0
+    total_scans: int = 0
+    total_models: int = 0
+    families: dict[str, int] = Field(default_factory=dict)
+
+
+class SimilarSampleResponse(BaseModel):
+    """A sample returned from k-NN similarity search."""
+
+    sha256: str
+    family: str
+    distance: float

@@ -7,13 +7,16 @@ import logging
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import yaml
 
 from wintermute.data.etl.base import ExtractResult, PipelineResult, RawSample
 from wintermute.data.etl.registry import SourceRegistry
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger("wintermute.data.etl")
 
@@ -36,6 +39,7 @@ class Pipeline:
         self,
         config: dict[str, Any] | None = None,
         config_path: str | Path | None = None,
+        db_session: Session | None = None,
     ) -> None:
         if config is not None:
             self.config = config
@@ -53,6 +57,9 @@ class Pipeline:
         self.seed = pipe_cfg.get("seed", 42)
 
         self.special_tokens: dict[str, int] = dict(DEFAULT_SPECIAL_TOKENS)
+
+        self._db_session = db_session
+        self._etl_run = None
 
     @staticmethod
     def _load_config(path: Path) -> dict[str, Any]:
@@ -173,6 +180,92 @@ class Pipeline:
         order = rng.permutation(len(y))
         return x[order], y[order]
 
+    # --- DB PERSISTENCE ---
+
+    def _persist_to_db(
+        self, samples: list[RawSample], extract_results: list[ExtractResult],
+    ) -> None:
+        """Write samples and ETL run to database. No-op if no session."""
+        if self._db_session is None:
+            return
+        try:
+            import hashlib
+
+            from wintermute.db.models import EtlRun, EtlRunSource
+            from wintermute.db.repos.samples import SampleRepo
+
+            # Create ETL run record
+            config_str = json.dumps(self.config, sort_keys=True)
+            config_hash = hashlib.sha256(config_str.encode()).hexdigest()
+
+            self._etl_run = EtlRun(
+                config_hash=config_hash,
+                config=self.config,
+                output_dir=str(self.out_dir),
+            )
+            self._db_session.add(self._etl_run)
+            self._db_session.flush()
+
+            # Bulk insert samples
+            repo = SampleRepo(self._db_session)
+            sample_dicts = []
+            for s in samples:
+                sha256 = hashlib.sha256(
+                    "|".join(s.opcodes).encode()
+                ).hexdigest()
+                sample_dicts.append({
+                    "sha256": sha256,
+                    "family": s.family or "",
+                    "label": s.label,
+                    "source": s.source_id or "unknown",
+                    "opcode_count": len(s.opcodes),
+                    "etl_run_id": self._etl_run.id,
+                })
+            if sample_dicts:
+                repo.bulk_insert(sample_dicts)
+
+            # Write extract results as EtlRunSource rows
+            for er in extract_results:
+                src = EtlRunSource(
+                    etl_run_id=self._etl_run.id,
+                    source_name=er.source_name,
+                    samples_extracted=er.samples_extracted,
+                    samples_skipped=er.samples_skipped,
+                    samples_failed=er.samples_failed,
+                    families_found=er.families_found,
+                    errors=er.errors,
+                    elapsed_seconds=er.elapsed_seconds,
+                )
+                self._db_session.add(src)
+
+            self._db_session.flush()
+            logger.info(
+                "DB: recorded %d samples and ETL run %s",
+                len(sample_dicts),
+                self._etl_run.id,
+            )
+
+        except Exception:
+            logger.warning("DB: failed to persist ETL data", exc_info=True)
+            self._etl_run = None  # Clear so _complete_etl_run skips
+
+    def _complete_etl_run(self, result: PipelineResult) -> None:
+        """Update ETL run record with completion stats. No-op if no session/run."""
+        if self._db_session is None or self._etl_run is None:
+            return
+        try:
+            from datetime import datetime, timezone
+
+            self._etl_run.total_samples = result.total_samples
+            self._etl_run.vocab_size = result.vocab_size
+            self._etl_run.num_classes = result.num_classes
+            self._etl_run.completed_at = datetime.now(timezone.utc)
+            self._etl_run.elapsed_seconds = result.elapsed_seconds
+            self._db_session.flush()
+            logger.info("DB: completed ETL run %s", self._etl_run.id)
+        except Exception:
+            logger.warning("DB: failed to update ETL run", exc_info=True)
+
     # --- LOAD ---
 
     def _save(
@@ -256,6 +349,9 @@ class Pipeline:
         logger.info("Starting ETL pipeline ...")
         samples, extract_results = self._extract(source_filter)
 
+        # --- DB: record samples and ETL run ---
+        self._persist_to_db(samples, extract_results)
+
         if not samples:
             logger.warning("No samples extracted from any source.")
             return PipelineResult(
@@ -308,6 +404,9 @@ class Pipeline:
         # --- Load ---
         elapsed = time.monotonic() - t0
         result = self._save(x_data, y_data, stoi, families, extract_results, elapsed)
+
+        # --- DB: update ETL run with completion stats ---
+        self._complete_etl_run(result)
 
         logger.info(
             "ETL complete: %d samples, %d classes, vocab=%d, "
