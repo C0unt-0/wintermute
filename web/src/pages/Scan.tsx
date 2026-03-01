@@ -3,8 +3,6 @@ import { api } from "../api/client.ts";
 import ConfidenceBar from "../components/ConfidenceBar.tsx";
 
 interface ScanResult {
-  verdict: string;
-  confidence: number;
   is_malicious: boolean;
   threat_score: number;
   predicted_family: string;
@@ -104,6 +102,8 @@ export default function Scan() {
   }, [file]);
 
   const isMalicious = result?.is_malicious ?? false;
+  const verdict = isMalicious ? "MALICIOUS" : "SAFE";
+  const confidence = result?.threat_score ?? 0;
   const verdictColor = isMalicious ? "var(--threat)" : "var(--safe)";
 
   return (
@@ -135,7 +135,7 @@ export default function Scan() {
                 <div className="mb-4">
                   <span style={{ color: "var(--text-muted)" }}>; Verdict: </span>
                   <span style={{ color: verdictColor, fontWeight: 700 }}>
-                    {result.verdict.toUpperCase()}
+                    {verdict}
                   </span>
                 </div>
                 <div className="mb-3" style={{ color: "var(--text-muted)" }}>
@@ -172,7 +172,7 @@ export default function Scan() {
                     <span style={{ color: "var(--purple)" }}>confidence</span>
                     <span style={{ color: "var(--text-muted)" }}>{" : "}</span>
                     <span style={{ color: verdictColor }}>
-                      {(result.confidence * 100).toFixed(1)}%
+                      {(confidence * 100).toFixed(1)}%
                     </span>
                   </div>
                   <div>
@@ -304,7 +304,7 @@ export default function Scan() {
                     textShadow: `0 0 20px ${verdictColor}40`,
                   }}
                 >
-                  {isMalicious ? "MALICIOUS" : "SAFE"}
+                  {verdict}
                 </div>
                 <div
                   className="text-xs uppercase tracking-widest"
@@ -324,12 +324,12 @@ export default function Scan() {
                 </p>
                 <div className="space-y-3">
                   <ConfidenceBar
-                    value={result.is_malicious ? result.confidence : 1 - result.confidence}
+                    value={isMalicious ? confidence : 1 - confidence}
                     label="Malicious"
                     color="var(--threat)"
                   />
                   <ConfidenceBar
-                    value={result.is_malicious ? 1 - result.confidence : result.confidence}
+                    value={isMalicious ? 1 - confidence : confidence}
                     label="Safe"
                     color="var(--safe)"
                   />
