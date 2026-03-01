@@ -29,6 +29,7 @@ _CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "database.yaml"
 # URL resolution
 # ---------------------------------------------------------------------------
 
+
 def _resolve_url(url: str | None = None) -> str:
     """Resolve the database URL from (in priority order):
 
@@ -56,6 +57,7 @@ def _resolve_url(url: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 # Engine creation
 # ---------------------------------------------------------------------------
+
 
 def _set_sqlite_pragmas(dbapi_conn: Any, _connection_record: Any) -> None:
     """Enable WAL journal mode and foreign-key enforcement for SQLite."""
@@ -104,6 +106,7 @@ def create_db_engine(url: str | None = None, echo: bool = False, **kwargs: Any) 
 # Accessors
 # ---------------------------------------------------------------------------
 
+
 def get_engine() -> Engine | None:
     """Return the current engine, or ``None`` if not yet created."""
     return _engine
@@ -134,6 +137,7 @@ def init_db(engine: Engine | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Session context manager
 # ---------------------------------------------------------------------------
+
 
 @contextmanager
 def get_session() -> Generator[Session, None, None]:

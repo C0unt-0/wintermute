@@ -78,6 +78,7 @@ class TestSourceRegistry:
         @register_source("_test_reg")
         class _TestSource(DataSource):
             name = "_test_reg"
+
             def extract(self):
                 yield RawSample(opcodes=["nop"], label=0)
 
@@ -96,13 +97,16 @@ class TestSourceRegistry:
         @register_source("_test_dup")
         class _Dup1(DataSource):
             name = "_test_dup"
+
             def extract(self):
                 return []
 
         with pytest.raises(ValueError, match="already registered"):
+
             @register_source("_test_dup")
             class _Dup2(DataSource):
                 name = "_test_dup"
+
                 def extract(self):
                     return []
 
@@ -114,6 +118,7 @@ class TestSourceRegistry:
         @register_source("_test_cfg")
         class _CfgSource(DataSource):
             name = "_test_cfg"
+
             def extract(self):
                 return []
 
@@ -134,14 +139,18 @@ class TestDataSourceBase:
 
         class _LifecycleSource(DataSource):
             name = "_lifecycle"
+
             def validate_config(self):
                 calls.append("validate")
                 return []
+
             def setup(self):
                 calls.append("setup")
+
             def extract(self):
                 calls.append("extract")
                 yield RawSample(opcodes=["mov"], label=0)
+
             def teardown(self):
                 calls.append("teardown")
 
@@ -152,8 +161,10 @@ class TestDataSourceBase:
 
     def test_empty_opcodes_skipped(self):
         """Samples with empty opcodes are counted as skipped."""
+
         class _EmptySource(DataSource):
             name = "_empty"
+
             def extract(self):
                 yield RawSample(opcodes=[], label=0)
                 yield RawSample(opcodes=["mov"], label=0)
@@ -166,10 +177,13 @@ class TestDataSourceBase:
 
     def test_validation_failure_prevents_extraction(self):
         """If validate_config returns errors, extraction is skipped."""
+
         class _BadConfig(DataSource):
             name = "_badcfg"
+
             def validate_config(self):
                 return ["missing required key"]
+
             def extract(self):
                 raise AssertionError("Should not be called")
 
@@ -181,6 +195,7 @@ class TestDataSourceBase:
     def test_config_helpers(self):
         class _Helpers(DataSource):
             name = "_helpers"
+
             def extract(self):
                 return []
 
@@ -193,8 +208,10 @@ class TestDataSourceBase:
 
     def test_extraction_error_caught(self):
         """Exceptions during extraction are caught, not propagated."""
+
         class _Crasher(DataSource):
             name = "_crasher"
+
             def extract(self):
                 yield RawSample(opcodes=["mov"], label=0)
                 raise RuntimeError("boom")
@@ -248,14 +265,18 @@ class TestAsmDirectorySource:
         fam_dir = tmp_path / "Emotet"
         fam_dir.mkdir()
         (fam_dir / "sample1.asm").write_text(
-            "\n".join(["mov", "push", "xor", "call", "ret",
-                       "add", "sub", "cmp", "jmp", "nop", "test"])
+            "\n".join(
+                ["mov", "push", "xor", "call", "ret", "add", "sub", "cmp", "jmp", "nop", "test"]
+            )
         )
 
-        src = SourceRegistry.create("asm_directory", config={
-            "data_dir": str(tmp_path),
-            "min_opcodes": 5,
-        })
+        src = SourceRegistry.create(
+            "asm_directory",
+            config={
+                "data_dir": str(tmp_path),
+                "min_opcodes": 5,
+            },
+        )
         samples, result = src.run()
         assert len(samples) == 1
         assert samples[0].family == "Emotet"
@@ -267,17 +288,23 @@ class TestAsmDirectorySource:
         fam_dir.mkdir()
         (fam_dir / "tiny.asm").write_text("mov\npush\n")
 
-        src = SourceRegistry.create("asm_directory", config={
-            "data_dir": str(tmp_path),
-            "min_opcodes": 10,
-        })
+        src = SourceRegistry.create(
+            "asm_directory",
+            config={
+                "data_dir": str(tmp_path),
+                "min_opcodes": 10,
+            },
+        )
         samples, result = src.run()
         assert len(samples) == 0
 
     def test_missing_dir_validation(self, tmp_path):
-        src = SourceRegistry.create("asm_directory", config={
-            "data_dir": str(tmp_path / "nonexistent"),
-        })
+        src = SourceRegistry.create(
+            "asm_directory",
+            config={
+                "data_dir": str(tmp_path / "nonexistent"),
+            },
+        )
         samples, result = src.run()
         assert len(samples) == 0
         assert len(result.errors) > 0
@@ -300,9 +327,12 @@ class TestPipeline:
 
     def test_full_etl_flow(self, tmp_path):
         """End-to-end: synthetic -> transform -> save."""
-        cfg = self._make_config(tmp_path, {
-            "synthetic": {"enabled": True, "n_samples": 20, "seed": 42},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "synthetic": {"enabled": True, "n_samples": 20, "seed": 42},
+            },
+        )
         pipe = Pipeline(config=cfg)
         result = pipe.run()
 
@@ -321,9 +351,12 @@ class TestPipeline:
 
     def test_vocab_has_special_tokens(self, tmp_path):
         """Vocabulary starts with 5 special tokens."""
-        cfg = self._make_config(tmp_path, {
-            "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
+            },
+        )
         pipe = Pipeline(config=cfg)
         pipe.run()
 
@@ -338,9 +371,12 @@ class TestPipeline:
 
     def test_manifest_provenance(self, tmp_path):
         """etl_manifest.json records per-source provenance."""
-        cfg = self._make_config(tmp_path, {
-            "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
+            },
+        )
         pipe = Pipeline(config=cfg)
         pipe.run()
 
@@ -354,9 +390,12 @@ class TestPipeline:
 
     def test_disabled_source_skipped(self, tmp_path):
         """Disabled sources are not instantiated."""
-        cfg = self._make_config(tmp_path, {
-            "synthetic": {"enabled": False, "n_samples": 10},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "synthetic": {"enabled": False, "n_samples": 10},
+            },
+        )
         pipe = Pipeline(config=cfg)
         result = pipe.run()
         assert result.total_samples == 0
@@ -364,10 +403,13 @@ class TestPipeline:
 
     def test_unknown_source_warned(self, tmp_path):
         """Unknown source names in config produce warnings, not crashes."""
-        cfg = self._make_config(tmp_path, {
-            "nonexistent_source_xyz": {"enabled": True},
-            "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "nonexistent_source_xyz": {"enabled": True},
+                "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
+            },
+        )
         pipe = Pipeline(config=cfg)
         result = pipe.run()
         # Pipeline continues past the unknown source
@@ -375,18 +417,23 @@ class TestPipeline:
 
     def test_multiple_source_merge(self, tmp_path):
         """Multiple sources merge correctly."""
+
         # Register a second inline source
         @register_source("_test_extra")
         class _ExtraSource(DataSource):
             name = "_test_extra"
+
             def extract(self):
                 for i in range(5):
                     yield RawSample(opcodes=["mov", "push", "ret"] * 5, label=2, family="extra")
 
-        cfg = self._make_config(tmp_path, {
-            "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
-            "_test_extra": {"enabled": True},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
+                "_test_extra": {"enabled": True},
+            },
+        )
         pipe = Pipeline(config=cfg)
         result = pipe.run()
         assert result.total_samples == 15
@@ -412,9 +459,12 @@ class TestPipeline:
 
     def test_dry_run(self, tmp_path):
         """Dry run validates without writing files."""
-        cfg = self._make_config(tmp_path, {
-            "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
-        })
+        cfg = self._make_config(
+            tmp_path,
+            {
+                "synthetic": {"enabled": True, "n_samples": 10, "seed": 42},
+            },
+        )
         pipe = Pipeline(config=cfg)
         result = pipe.run(dry_run=True)
         assert result.total_samples == 10
@@ -427,9 +477,11 @@ class TestPipeline:
 class TestPluginPattern:
     def test_custom_source_end_to_end(self, tmp_path):
         """A custom source works end-to-end with zero framework changes."""
+
         @register_source("_test_custom_e2e")
         class _CustomE2E(DataSource):
             name = "_test_custom_e2e"
+
             def extract(self):
                 for i in range(3):
                     yield RawSample(

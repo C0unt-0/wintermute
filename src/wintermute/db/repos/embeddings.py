@@ -67,15 +67,11 @@ class EmbeddingRepo:
         """
         try:
             if self._dialect == "sqlite":
-                self._session.execute(
-                    text("SELECT vec_distance_cosine(zeroblob(4), zeroblob(4))")
-                )
+                self._session.execute(text("SELECT vec_distance_cosine(zeroblob(4), zeroblob(4))"))
                 return True
             elif self._dialect == "postgresql":
                 row = self._session.execute(
-                    text(
-                        "SELECT 1 FROM pg_extension WHERE extname = 'vector' LIMIT 1"
-                    )
+                    text("SELECT 1 FROM pg_extension WHERE extname = 'vector' LIMIT 1")
                 ).first()
                 return row is not None
         except Exception:
@@ -172,9 +168,7 @@ class EmbeddingRepo:
         # Validate all values are numeric before building the vector literal
         for i, v in enumerate(query_vec):
             if not isinstance(v, (int, float)):
-                raise ValueError(
-                    f"query_vec[{i}] must be int or float, got {type(v).__name__}"
-                )
+                raise ValueError(f"query_vec[{i}] must be int or float, got {type(v).__name__}")
 
         vec_literal = "[" + ",".join(str(v) for v in query_vec) + "]"
 
@@ -276,12 +270,8 @@ class EmbeddingRepo:
                     "sha256": nb["sha256"],
                     "family": nb["family"],
                     "distance": nb["distance"],
-                    "last_scan_confidence": (
-                        float(scan_row.confidence) if scan_row else None
-                    ),
-                    "last_scan_date": (
-                        scan_row.scanned_at.isoformat() if scan_row else None
-                    ),
+                    "last_scan_confidence": (float(scan_row.confidence) if scan_row else None),
+                    "last_scan_date": (scan_row.scanned_at.isoformat() if scan_row else None),
                 }
             )
 
@@ -342,17 +332,10 @@ class EmbeddingRepo:
         Returns ``{total_samples, with_embedding, without_embedding, pct_covered}``.
         Does **not** require the vector extension.
         """
-        total: int = (
-            self._session.execute(
-                select(func.count()).select_from(Sample)
-            ).scalar()
-            or 0
-        )
+        total: int = self._session.execute(select(func.count()).select_from(Sample)).scalar() or 0
         with_emb: int = (
             self._session.execute(
-                select(func.count())
-                .select_from(Sample)
-                .where(Sample.embedding.isnot(None))
+                select(func.count()).select_from(Sample).where(Sample.embedding.isnot(None))
             ).scalar()
             or 0
         )

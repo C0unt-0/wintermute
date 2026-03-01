@@ -835,9 +835,7 @@ class TestEmbeddingRepo:
         self._add_samples_with_embeddings(db_session, n=3)
         # Add two samples *without* embeddings
         for c in "xy":
-            db_session.add(
-                Sample(sha256=c * 64, family="test", label=0, source="test")
-            )
+            db_session.add(Sample(sha256=c * 64, family="test", label=0, source="test"))
         db_session.flush()
 
         repo = EmbeddingRepo(db_session)
@@ -918,9 +916,7 @@ class TestEmbeddingRepo:
     def test_find_nearest_no_embeddings(self, db_session: Session):
         """Samples exist but none have embeddings."""
 
-        db_session.add(
-            Sample(sha256="a" * 64, family="test", label=0, source="test")
-        )
+        db_session.add(Sample(sha256="a" * 64, family="test", label=0, source="test"))
         db_session.flush()
 
         repo = EmbeddingRepo(db_session)
@@ -1020,9 +1016,7 @@ class TestEmbeddingRepo:
     def test_cluster_family_no_embeddings(self, db_session: Session):
         """Family exists but has no embeddings."""
 
-        db_session.add(
-            Sample(sha256="a" * 64, family="Emotet", label=1, source="test")
-        )
+        db_session.add(Sample(sha256="a" * 64, family="Emotet", label=1, source="test"))
         db_session.flush()
 
         repo = EmbeddingRepo(db_session)

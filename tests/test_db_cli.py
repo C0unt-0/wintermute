@@ -188,17 +188,13 @@ class TestDbSamples:
 
     def test_samples_filter_source(self, setup_db):
         _seed_samples()
-        result = runner.invoke(
-            app, ["db", "samples", "--source", "virusshare"]
-        )
+        result = runner.invoke(app, ["db", "samples", "--source", "virusshare"])
         assert result.exit_code == 0
         assert "Found 1 sample(s)" in result.output
 
     def test_samples_filter_min_opcodes(self, setup_db):
         _seed_samples()
-        result = runner.invoke(
-            app, ["db", "samples", "--min-opcodes", "600"]
-        )
+        result = runner.invoke(app, ["db", "samples", "--min-opcodes", "600"])
         assert result.exit_code == 0
         assert "Found 1 sample(s)" in result.output
 
@@ -254,9 +250,7 @@ class TestDbModels:
 
     def test_models_promote(self, setup_db):
         model_ids = _seed_models()
-        result = runner.invoke(
-            app, ["db", "models", "--promote", model_ids[0]]
-        )
+        result = runner.invoke(app, ["db", "models", "--promote", model_ids[0]])
         assert result.exit_code == 0
         assert "promoted to active" in result.output
 

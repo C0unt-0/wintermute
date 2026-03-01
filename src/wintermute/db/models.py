@@ -29,6 +29,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -41,6 +42,7 @@ def _new_uuid() -> str:
 # Base
 # ---------------------------------------------------------------------------
 
+
 class Base(DeclarativeBase):
     """Base class for all Wintermute ORM models."""
 
@@ -48,6 +50,7 @@ class Base(DeclarativeBase):
 # ---------------------------------------------------------------------------
 # 1. Sample
 # ---------------------------------------------------------------------------
+
 
 class Sample(Base):
     __tablename__ = "samples"
@@ -64,9 +67,7 @@ class Sample(Base):
         String(36), ForeignKey("etl_runs.id"), nullable=True
     )
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
@@ -84,6 +85,7 @@ class Sample(Base):
 # 2. ScanResult
 # ---------------------------------------------------------------------------
 
+
 class ScanResult(Base):
     __tablename__ = "scan_results"
 
@@ -95,16 +97,12 @@ class ScanResult(Base):
     predicted_label: Mapped[int] = mapped_column(Integer, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     probabilities: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    model_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("models.id"), nullable=True
-    )
+    model_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("models.id"), nullable=True)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
     nearest_neighbors: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     execution_time_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
-    scanned_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     __table_args__ = (
         Index("ix_scan_results_sha256", "sha256"),
@@ -119,18 +117,15 @@ class ScanResult(Base):
 # 3. Model
 # ---------------------------------------------------------------------------
 
+
 class Model(Base):
     __tablename__ = "models"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
     version: Mapped[str] = mapped_column(String(50), unique=True)
-    architecture: Mapped[str] = mapped_column(
-        String(100), default="WintermuteMalwareDetector"
-    )
+    architecture: Mapped[str] = mapped_column(String(100), default="WintermuteMalwareDetector")
     weights_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    manifest_path: Mapped[str] = mapped_column(
-        String(500), nullable=False, default=""
-    )
+    manifest_path: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     onnx_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     vocab_size: Mapped[int] = mapped_column(Integer, nullable=False)
     num_classes: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -151,15 +146,9 @@ class Model(Base):
     best_val_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     best_val_auc_roc: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="staged")
-    promoted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    retired_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
+    promoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     __table_args__ = (
         Index("ix_models_status", "status"),
@@ -171,13 +160,12 @@ class Model(Base):
 # 4. TrainingRun
 # ---------------------------------------------------------------------------
 
+
 class TrainingRun(Base):
     __tablename__ = "training_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
-    model_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("models.id"), nullable=True
-    )
+    model_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("models.id"), nullable=True)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     pretrained_weights: Mapped[str | None] = mapped_column(String(500), nullable=True)
     dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -197,18 +185,15 @@ class TrainingRun(Base):
     vault_samples_mixed: Mapped[int] = mapped_column(Integer, default=0)
     trades_beta_final: Mapped[float | None] = mapped_column(Float, nullable=True)
     ewc_lambda: Mapped[float | None] = mapped_column(Float, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 # ---------------------------------------------------------------------------
 # 5. AdversarialCycle
 # ---------------------------------------------------------------------------
+
 
 class AdversarialCycle(Base):
     __tablename__ = "adversarial_cycles"
@@ -226,12 +211,8 @@ class AdversarialCycle(Base):
     vault_samples_used: Mapped[int] = mapped_column(Integer, default=0)
     defender_f1_before: Mapped[float | None] = mapped_column(Float, nullable=True)
     defender_f1_after: Mapped[float | None] = mapped_column(Float, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     variants: Mapped[list[AdversarialVariant]] = relationship(
         "AdversarialVariant", back_populates="cycle"
@@ -241,6 +222,7 @@ class AdversarialCycle(Base):
 # ---------------------------------------------------------------------------
 # 6. AdversarialVariant
 # ---------------------------------------------------------------------------
+
 
 class AdversarialVariant(Base):
     __tablename__ = "adversarial_variants"
@@ -252,9 +234,7 @@ class AdversarialVariant(Base):
     cycle_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("adversarial_cycles.id"), nullable=False
     )
-    mutated_token_ids: Mapped[dict] = mapped_column(
-        JSON, nullable=False, default=list
-    )
+    mutated_token_ids: Mapped[dict] = mapped_column(JSON, nullable=False, default=list)
     mutations_applied: Mapped[list | None] = mapped_column(JSON, default=list)
     mutation_count: Mapped[int] = mapped_column(Integer, nullable=False)
     modification_pct: Mapped[float] = mapped_column(Float, nullable=False)
@@ -266,9 +246,7 @@ class AdversarialVariant(Base):
     retraining_run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("training_runs.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     cycle: Mapped[AdversarialCycle | None] = relationship(
         "AdversarialCycle", back_populates="variants"
@@ -286,6 +264,7 @@ class AdversarialVariant(Base):
 # 7. EtlRun + EtlRunSource
 # ---------------------------------------------------------------------------
 
+
 class EtlRun(Base):
     __tablename__ = "etl_runs"
 
@@ -296,12 +275,8 @@ class EtlRun(Base):
     vocab_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     num_classes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     sources: Mapped[list[EtlRunSource]] = relationship(
@@ -319,21 +294,13 @@ class EtlRunSource(Base):
         String(36), ForeignKey("etl_runs.id", ondelete="CASCADE")
     )
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    samples_extracted: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
-    samples_skipped: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
-    samples_failed: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
+    samples_extracted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    samples_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    samples_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     families_found: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
     errors: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     etl_run: Mapped[EtlRun] = relationship("EtlRun", back_populates="sources")
 
-    __table_args__ = (
-        Index("ix_etl_run_sources_etl_run_id", "etl_run_id"),
-    )
+    __table_args__ = (Index("ix_etl_run_sources_etl_run_id", "etl_run_id"),)

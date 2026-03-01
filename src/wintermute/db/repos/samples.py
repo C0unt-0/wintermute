@@ -130,11 +130,17 @@ class SampleRepo:
         if dialect_name == "postgresql":
             from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-            stmt = pg_insert(Sample).values(samples).on_conflict_do_nothing(index_elements=["sha256"])
+            stmt = (
+                pg_insert(Sample).values(samples).on_conflict_do_nothing(index_elements=["sha256"])
+            )
         else:
             from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-            stmt = sqlite_insert(Sample).values(samples).on_conflict_do_nothing(index_elements=["sha256"])
+            stmt = (
+                sqlite_insert(Sample)
+                .values(samples)
+                .on_conflict_do_nothing(index_elements=["sha256"])
+            )
 
         self._session.execute(stmt)
         self._session.flush()
