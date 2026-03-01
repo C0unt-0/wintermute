@@ -149,7 +149,7 @@ def db_client():
     from api.main import app
 
     app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app)
     yield client, SessionLocal
     app.dependency_overrides.clear()
     engine.dispose()

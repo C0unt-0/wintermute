@@ -48,13 +48,15 @@ class ScanRepo:
     # Queries
     # ------------------------------------------------------------------
 
-    def history(self, sha256: str) -> list[ScanResult]:
+    def history(self, sha256: str, limit: int | None = None) -> list[ScanResult]:
         """All scans for a given file hash, most recent first."""
         stmt = (
             select(ScanResult)
             .where(ScanResult.sha256 == sha256)
             .order_by(ScanResult.scanned_at.desc())
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         return list(self._session.execute(stmt).scalars().all())
 
     def recent(self, limit: int = 50, since: datetime | None = None) -> list[ScanResult]:

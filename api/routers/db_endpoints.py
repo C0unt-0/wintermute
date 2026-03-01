@@ -7,8 +7,9 @@ model registry, and embedding similarity search.
 from __future__ import annotations
 
 import logging
+import struct
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -40,7 +41,9 @@ def get_stats(session: Session = Depends(get_db)) -> StatsResponse:
     total_scans: int = session.execute(select(func.count()).select_from(ScanResult)).scalar() or 0
     total_models: int = session.execute(select(func.count()).select_from(Model)).scalar() or 0
 
-    family_rows = session.execute(select(Sample.family, func.count()).group_by(Sample.family)).all()
+    family_rows = session.execute(
+        select(func.coalesce(Sample.family, ""), func.count()).group_by(Sample.family)
+    ).all()
     families = {family: count for family, count in family_rows}
 
     return StatsResponse(
@@ -56,8 +59,11 @@ def get_stats(session: Session = Depends(get_db)) -> StatsResponse:
 # ---------------------------------------------------------------------------
 
 
+_SHA256_PATH = Path(..., min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
+
+
 @router.get("/samples/{sha256}", response_model=SampleResponse)
-def get_sample(sha256: str, session: Session = Depends(get_db)) -> SampleResponse:
+def get_sample(sha256: str = _SHA256_PATH, session: Session = Depends(get_db)) -> SampleResponse:
     """Look up a single sample by its SHA-256 hash."""
     from wintermute.db.repos.samples import SampleRepo
 
@@ -96,7 +102,7 @@ def list_scans(
     repo = ScanRepo(session)
 
     if sha256 is not None:
-        rows = repo.history(sha256)[:limit]
+        rows = repo.history(sha256, limit=limit)
     elif uncertain:
         rows = repo.uncertain(limit=limit)
     else:
@@ -124,7 +130,7 @@ def list_scans(
 
 @router.get("/similar/{sha256}", response_model=list[SimilarSampleResponse])
 def find_similar(
-    sha256: str,
+    sha256: str = _SHA256_PATH,
     k: int = Query(default=5, ge=1, le=50),
     session: Session = Depends(get_db),
 ) -> list[SimilarSampleResponse]:
@@ -143,7 +149,11 @@ def find_similar(
             detail=f"Sample '{sha256}' has no embedding vector.",
         )
 
-    import struct
+    if len(sample.embedding) % 4 != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sample '{sha256}' has a corrupt embedding.",
+        )
 
     dim = len(sample.embedding) // 4
     query_vec = list(struct.unpack(f"{dim}f", sample.embedding))

@@ -1,6 +1,6 @@
 """ORM models for the Wintermute database layer.
 
-Defines all seven tables:
+Defines all eight tables:
   samples, scan_results, models, training_runs,
   adversarial_cycles, adversarial_variants,
   etl_runs, etl_run_sources

@@ -23,8 +23,7 @@ from starlette.websockets import WebSocketDisconnect
 from celery.result import AsyncResult
 
 from src.wintermute.engine.worker import analyze_binary_task, celery_app
-from api.routers import dashboard, training, adversarial, pipeline, vault
-from api.routers import db_endpoints
+from api.routers import dashboard, training, adversarial, pipeline, vault, db_endpoints
 from api.ws import ws_manager
 
 logger = logging.getLogger("wintermute.api")
