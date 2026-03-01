@@ -1,6 +1,6 @@
 """test_etl_sources.py — Tests for individual ETL data sources.
 
-Tests for MalShareSource with mocked HTTP interactions.
+Tests for MalShareSource and URLhausSource with mocked HTTP interactions.
 """
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 import wintermute.data.etl.sources  # noqa: F401  # trigger source auto-registration
 from wintermute.data.etl.registry import SourceRegistry
@@ -263,3 +264,206 @@ class TestMalShareSource:
         # Call _get_sample_hashes directly to verify limiting
         hashes = src._get_sample_hashes(self.FAKE_API_KEY, "PE32", 2)
         assert len(hashes) == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestURLhausSource
+# ═══════════════════════════════════════════════════════════════════════════
+class TestURLhausSource:
+    """Tests for the URLhaus ETL data source."""
+
+    FAKE_SHA256 = "a" * 64
+    FAKE_SHA256_B = "b" * 64
+    FAKE_OPCODES = ["mov", "push", "xor", "call", "ret", "add", "sub", "cmp", "jmp", "nop", "test"]
+
+    def _make_payload(
+        self,
+        sha256: str,
+        file_type: str = "exe",
+        signature: str | None = "AgentTesla",
+    ) -> dict:
+        """Build a fake URLhaus payload entry."""
+        return {
+            "sha256_hash": sha256,
+            "file_type": file_type,
+            "signature": signature,
+            "urlhaus_download": f"https://urlhaus-api.abuse.ch/v1/download/{sha256}/",
+        }
+
+    def test_urlhaus_registration(self):
+        """Verify 'urlhaus' is registered in the source registry."""
+        available = SourceRegistry.available()
+        assert "urlhaus" in available
+
+    def test_urlhaus_no_api_key_required(self):
+        """validate_config returns empty list (no API key needed)."""
+        src = SourceRegistry.create("urlhaus", config={})
+        errors = src.validate_config()
+        assert errors == []
+
+    @patch("wintermute.data.etl.sources.urlhaus.requests.post")
+    @patch("wintermute.data.etl.sources.urlhaus.requests.get")
+    @patch("wintermute.data.etl.pe_utils.PEProcessor.unzip_encrypted")
+    @patch("wintermute.data.etl.pe_utils.PEProcessor.disassemble_pe_bytes")
+    def test_urlhaus_extract_with_mocked_api(
+        self, mock_disasm, mock_unzip, mock_get, mock_post, tmp_path
+    ):
+        """Mock POST to payloads/recent/ and GET to download/, verify RawSample output."""
+        # Mock recent payloads POST response
+        recent_response = MagicMock()
+        recent_response.status_code = 200
+        recent_response.json.return_value = {
+            "payloads": [
+                self._make_payload(self.FAKE_SHA256, "exe", "AgentTesla"),
+                self._make_payload(self.FAKE_SHA256_B, "dll", "Emotet"),
+            ]
+        }
+        recent_response.raise_for_status = MagicMock()
+        mock_post.return_value = recent_response
+
+        # Mock download GET response (AES-encrypted ZIP bytes)
+        dl_response = MagicMock()
+        dl_response.status_code = 200
+        dl_response.content = b"PK" + b"\x00" * 100  # fake zip
+        dl_response.raise_for_status = MagicMock()
+        mock_get.return_value = dl_response
+
+        # Mock unzip -> PE bytes
+        mock_unzip.return_value = b"MZ" + b"\x00" * 100
+
+        # Mock disassembly -> opcodes
+        mock_disasm.return_value = self.FAKE_OPCODES
+
+        src = SourceRegistry.create(
+            "urlhaus",
+            config={
+                "cache_dir": str(tmp_path / "urlhaus_cache"),
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "recent_limit": 100,
+                "file_types": ["exe", "dll"],
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 2
+        # Verify family names come from the signature field
+        families = {s.family for s in samples}
+        assert "AgentTesla" in families
+        assert "Emotet" in families
+        for sample in samples:
+            assert sample.label == 1
+            assert sample.opcodes == self.FAKE_OPCODES
+            assert len(sample.source_id) == 64
+
+    @patch("wintermute.data.etl.sources.urlhaus.requests.post")
+    @patch("wintermute.data.etl.sources.urlhaus.requests.get")
+    @patch("wintermute.data.etl.pe_utils.PEProcessor.unzip_encrypted")
+    @patch("wintermute.data.etl.pe_utils.PEProcessor.disassemble_pe_bytes")
+    def test_urlhaus_pe_filtering(self, mock_disasm, mock_unzip, mock_get, mock_post, tmp_path):
+        """Only PE file types (exe, dll) are processed; elf/doc are skipped."""
+        recent_response = MagicMock()
+        recent_response.status_code = 200
+        recent_response.json.return_value = {
+            "payloads": [
+                self._make_payload(self.FAKE_SHA256, "exe", "AgentTesla"),
+                self._make_payload("c" * 64, "elf", "Mirai"),
+                self._make_payload("d" * 64, "doc", "Emotet"),
+                self._make_payload(self.FAKE_SHA256_B, "dll", "TrickBot"),
+            ]
+        }
+        recent_response.raise_for_status = MagicMock()
+        mock_post.return_value = recent_response
+
+        dl_response = MagicMock()
+        dl_response.status_code = 200
+        dl_response.content = b"PK" + b"\x00" * 100
+        dl_response.raise_for_status = MagicMock()
+        mock_get.return_value = dl_response
+
+        mock_unzip.return_value = b"MZ" + b"\x00" * 100
+        mock_disasm.return_value = self.FAKE_OPCODES
+
+        src = SourceRegistry.create(
+            "urlhaus",
+            config={
+                "cache_dir": str(tmp_path / "urlhaus_cache"),
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "recent_limit": 100,
+                "file_types": ["exe", "dll"],
+            },
+        )
+
+        samples, result = src.run()
+        # Only exe and dll should be processed (elf and doc filtered out)
+        assert result.samples_extracted == 2
+        source_ids = {s.source_id for s in samples}
+        assert self.FAKE_SHA256 in source_ids
+        assert self.FAKE_SHA256_B in source_ids
+        # elf and doc hashes should not appear
+        assert "c" * 64 not in source_ids
+        assert "d" * 64 not in source_ids
+
+    @patch("wintermute.data.etl.sources.urlhaus.requests.post")
+    def test_urlhaus_cache_hit(self, mock_post, tmp_path):
+        """Pre-populated cache prevents download HTTP calls."""
+        cache_dir = tmp_path / "urlhaus_cache"
+        cache_dir.mkdir(parents=True)
+        # Write a cached .asm file
+        asm_file = cache_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        # Mock recent payloads response
+        recent_response = MagicMock()
+        recent_response.status_code = 200
+        recent_response.json.return_value = {
+            "payloads": [
+                self._make_payload(self.FAKE_SHA256, "exe", "Formbook"),
+            ]
+        }
+        recent_response.raise_for_status = MagicMock()
+        mock_post.return_value = recent_response
+
+        src = SourceRegistry.create(
+            "urlhaus",
+            config={
+                "cache_dir": str(cache_dir),
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "recent_limit": 100,
+                "file_types": ["exe", "dll"],
+            },
+        )
+
+        # Patch requests.get to track calls — should NOT be called
+        with patch("wintermute.data.etl.sources.urlhaus.requests.get") as mock_get:
+            samples, result = src.run()
+            assert result.samples_extracted == 1
+            assert samples[0].opcodes == self.FAKE_OPCODES
+            assert samples[0].source_id == self.FAKE_SHA256
+            assert samples[0].family == "Formbook"
+            # No download calls should have been made
+            mock_get.assert_not_called()
+
+    @patch("wintermute.data.etl.sources.urlhaus.requests.post")
+    def test_urlhaus_api_error(self, mock_post, tmp_path):
+        """API errors are handled gracefully (no crash, zero samples)."""
+        mock_post.side_effect = requests.RequestException("Connection timeout")
+
+        src = SourceRegistry.create(
+            "urlhaus",
+            config={
+                "cache_dir": str(tmp_path / "urlhaus_cache"),
+                "delay": 0.0,
+                "max_samples": 10,
+                "recent_limit": 100,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
