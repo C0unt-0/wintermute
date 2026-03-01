@@ -1,6 +1,6 @@
 """test_etl_sources.py — Tests for individual ETL data sources.
 
-Tests for MalShareSource and URLhausSource with mocked HTTP interactions.
+Tests for MalShareSource, URLhausSource, and VirusTotalSource with mocked HTTP interactions.
 """
 
 from __future__ import annotations
@@ -461,6 +461,242 @@ class TestURLhausSource:
                 "delay": 0.0,
                 "max_samples": 10,
                 "recent_limit": 100,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestVirusTotalSource
+# ═══════════════════════════════════════════════════════════════════════════
+class TestVirusTotalSource:
+    """Tests for the VirusTotal ETL data source."""
+
+    FAKE_API_KEY = "vt_test_api_key_12345"
+    FAKE_SHA256 = "a" * 64
+    FAKE_SHA256_B = "b" * 64
+    FAKE_OPCODES = ["mov", "push", "xor", "call", "ret", "add", "sub", "cmp", "jmp", "nop", "test"]
+
+    def _make_vt_report(
+        self,
+        sha256: str,
+        malicious: int = 50,
+        undetected: int = 10,
+        popular_threat_name: str = "Trojan.GenericKD",
+    ) -> dict:
+        """Build a fake VirusTotal /files/{id} API response."""
+        return {
+            "data": {
+                "id": sha256,
+                "type": "file",
+                "attributes": {
+                    "sha256": sha256,
+                    "last_analysis_stats": {
+                        "malicious": malicious,
+                        "undetected": undetected,
+                        "suspicious": 0,
+                        "harmless": 0,
+                        "timeout": 0,
+                        "failure": 0,
+                        "type-unsupported": 0,
+                    },
+                    "popular_threat_name": popular_threat_name,
+                },
+            }
+        }
+
+    def test_vt_registration(self):
+        """Verify 'virustotal' is registered in the source registry."""
+        available = SourceRegistry.available()
+        assert "virustotal" in available
+
+    def test_vt_missing_api_key(self):
+        """validate_config returns an error when no API key is provided."""
+        src = SourceRegistry.create("virustotal", config={})
+        import os
+
+        env_backup = os.environ.pop("VT_API_KEY", None)
+        try:
+            errors = src.validate_config()
+            assert len(errors) == 1
+            assert "API key" in errors[0]
+        finally:
+            if env_backup is not None:
+                os.environ["VT_API_KEY"] = env_backup
+
+    @patch("wintermute.data.etl.sources.virustotal.requests.get")
+    def test_vt_enrich_mode(self, mock_get, tmp_path):
+        """Mock VT API response, pre-populate cache_dir with .asm file, verify enriched RawSample."""
+        # Pre-populate a cache directory with an .asm file
+        cache_dir = tmp_path / "bazaar_cache"
+        cache_dir.mkdir(parents=True)
+        asm_file = cache_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        # Create a hash file
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(f"{self.FAKE_SHA256}\n")
+
+        # Mock VT API response
+        vt_response = MagicMock()
+        vt_response.status_code = 200
+        vt_response.json.return_value = self._make_vt_report(
+            self.FAKE_SHA256,
+            malicious=50,
+            undetected=10,
+            popular_threat_name="Trojan.GenericKD",
+        )
+        vt_response.raise_for_status = MagicMock()
+        mock_get.return_value = vt_response
+
+        src = SourceRegistry.create(
+            "virustotal",
+            config={
+                "api_key": self.FAKE_API_KEY,
+                "cache_dir": str(tmp_path / "vt_cache"),
+                "mode": "enrich",
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "hash_file": str(hash_file),
+                "cache_dirs": [str(cache_dir)],
+                "min_detection_ratio": 0.5,
+            },
+        )
+
+        samples, result = src.run()
+        assert result.samples_extracted == 1
+        sample = samples[0]
+        assert sample.opcodes == self.FAKE_OPCODES
+        assert sample.label == 1
+        assert sample.family == "Trojan.GenericKD"
+        assert sample.source_id == self.FAKE_SHA256
+        assert "detection_ratio" in sample.metadata
+        assert sample.metadata["detection_ratio"] == pytest.approx(50 / 60, rel=1e-2)
+
+    @patch("wintermute.data.etl.sources.virustotal.requests.get")
+    def test_vt_enrich_skips_uncached(self, mock_get, tmp_path):
+        """Hash in hash_file but no .asm cached: skip without crashing."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(f"{self.FAKE_SHA256}\n")
+
+        # VT API returns a valid report
+        vt_response = MagicMock()
+        vt_response.status_code = 200
+        vt_response.json.return_value = self._make_vt_report(self.FAKE_SHA256)
+        vt_response.raise_for_status = MagicMock()
+        mock_get.return_value = vt_response
+
+        src = SourceRegistry.create(
+            "virustotal",
+            config={
+                "api_key": self.FAKE_API_KEY,
+                "cache_dir": str(tmp_path / "vt_cache"),
+                "mode": "enrich",
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "hash_file": str(hash_file),
+                "cache_dirs": [],  # no cache dirs
+                "min_detection_ratio": 0.5,
+            },
+        )
+
+        samples, result = src.run()
+        # Enrich mode with no cached .asm should produce zero samples
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
+
+    @patch("wintermute.data.etl.sources.virustotal.requests.get")
+    def test_vt_detection_ratio_filter(self, mock_get, tmp_path):
+        """VT response with low detection ratio is filtered out."""
+        # Pre-populate cache
+        cache_dir = tmp_path / "bazaar_cache"
+        cache_dir.mkdir(parents=True)
+        asm_file = cache_dir / f"{self.FAKE_SHA256}.asm"
+        asm_file.write_text("\n".join(self.FAKE_OPCODES))
+
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(f"{self.FAKE_SHA256}\n")
+
+        # Low detection: 2 malicious out of 60 total = ~3.3%
+        vt_response = MagicMock()
+        vt_response.status_code = 200
+        vt_response.json.return_value = self._make_vt_report(
+            self.FAKE_SHA256,
+            malicious=2,
+            undetected=58,
+            popular_threat_name="Benign.Test",
+        )
+        vt_response.raise_for_status = MagicMock()
+        mock_get.return_value = vt_response
+
+        src = SourceRegistry.create(
+            "virustotal",
+            config={
+                "api_key": self.FAKE_API_KEY,
+                "cache_dir": str(tmp_path / "vt_cache"),
+                "mode": "enrich",
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "hash_file": str(hash_file),
+                "cache_dirs": [str(cache_dir)],
+                "min_detection_ratio": 0.5,
+            },
+        )
+
+        samples, result = src.run()
+        # Low detection ratio should be filtered out
+        assert result.samples_extracted == 0
+        assert len(samples) == 0
+
+    def test_vt_hash_file_loading(self, tmp_path):
+        """Verify hashes are loaded correctly from a hash file."""
+        from wintermute.data.etl.sources.virustotal import VirusTotalSource
+
+        hash_file = tmp_path / "hashes.txt"
+        hashes_content = "\n".join(
+            [
+                self.FAKE_SHA256,
+                self.FAKE_SHA256_B,
+                "not-a-valid-hash",
+                "",
+                "c" * 64,
+            ]
+        )
+        hash_file.write_text(hashes_content)
+
+        loaded = VirusTotalSource._get_hashes(str(hash_file), [], 100)
+        # Should include 3 valid SHA-256 hashes, skip the invalid one and blank line
+        assert len(loaded) == 3
+        assert self.FAKE_SHA256 in loaded
+        assert self.FAKE_SHA256_B in loaded
+        assert "c" * 64 in loaded
+
+    @patch("wintermute.data.etl.sources.virustotal.requests.get")
+    def test_vt_api_error(self, mock_get, tmp_path):
+        """API errors are handled gracefully (no crash, zero samples)."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(f"{self.FAKE_SHA256}\n")
+
+        mock_get.side_effect = requests.RequestException("API rate limit exceeded")
+
+        src = SourceRegistry.create(
+            "virustotal",
+            config={
+                "api_key": self.FAKE_API_KEY,
+                "cache_dir": str(tmp_path / "vt_cache"),
+                "mode": "enrich",
+                "delay": 0.0,
+                "min_opcodes": 5,
+                "max_samples": 10,
+                "hash_file": str(hash_file),
+                "cache_dirs": [],
+                "min_detection_ratio": 0.5,
             },
         )
 

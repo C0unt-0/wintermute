@@ -7,3 +7,4 @@ from wintermute.data.etl.sources.ms_dataset import MSDatasetSource  # noqa: F401
 from wintermute.data.etl.sources.pe_files import PEFilesSource  # noqa: F401
 from wintermute.data.etl.sources.synthetic import SyntheticSource  # noqa: F401
 from wintermute.data.etl.sources.urlhaus import URLhausSource  # noqa: F401
+from wintermute.data.etl.sources.virustotal import VirusTotalSource  # noqa: F401
