@@ -13,18 +13,19 @@ Each task:
 
 import os
 from celery import Celery
-from src.wintermute.data.extractor import HeadlessDisassembler
+from src.wintermute.data.disassembler import HeadlessDisassembler
 
 # Import your existing Wintermute models here when ready:
 # from src.wintermute.models.transformer import MalBERT
 # from src.wintermute.models.gnn import MalwareGNN
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+BROKER_URL = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+BACKEND_URL = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 celery_app = Celery(
     "wintermute_worker",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=BROKER_URL,
+    backend=BACKEND_URL,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ def analyze_binary_task(self, file_path: str) -> dict:
             meta={"step": "Extracting features from binary..."},
         )
         extractor = HeadlessDisassembler(file_path)
-        sequence, cfg = extractor.extract_features()
+        result = extractor.extract()
 
         # ── Step 2: Deep Learning Inference ──────────────────────────────
         self.update_state(
@@ -80,9 +81,9 @@ def analyze_binary_task(self, file_path: str) -> dict:
             "is_malicious": is_malicious,
             "predicted_family": "AgentTesla" if is_malicious else "Clean",
             "telemetry": {
-                "instructions_analyzed": len(sequence.split()),
-                "cfg_nodes": len(cfg.nodes),
-                "cfg_edges": len(cfg.edges),
+                "instructions_analyzed": len(result.sequence),
+                "cfg_nodes": result.n_nodes,
+                "cfg_edges": result.n_edges,
             },
         }
 

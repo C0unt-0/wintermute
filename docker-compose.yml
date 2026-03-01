@@ -1,5 +1,6 @@
 services:
   api:
+    profiles: ["full"]
     build: .
     ports:
       - "8000:8000"
@@ -11,8 +12,10 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - WINTERMUTE_DATABASE_URL=postgresql+psycopg://wintermute:${DB_PASSWORD:-wintermute_dev}@db:5432/wintermute
   worker:
+    profiles: ["full"]
     build: .
     command: celery -A src.wintermute.engine.worker worker -l info
     depends_on:
@@ -23,6 +26,7 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - WINTERMUTE_DATABASE_URL=postgresql+psycopg://wintermute:${DB_PASSWORD:-wintermute_dev}@db:5432/wintermute
   redis:
     image: redis:7-alpine

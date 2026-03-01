@@ -126,7 +126,7 @@ export default function Dashboard() {
         <StatCard
           label="MACRO F1"
           value={formatPercent(displayF1)}
-          subtitle="target \u2265 0.90"
+          subtitle={"target \u2265 0.90"}
           color="var(--data)"
         />
         <StatCard

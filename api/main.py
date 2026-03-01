@@ -138,7 +138,7 @@ async def get_status(job_id: str):
         }
 
     elif task_result.state == "SUCCESS":
-        return {"job_id": job_id, "result": task_result.result}
+        return {"job_id": job_id, "status": "COMPLETED", "result": task_result.result}
 
     elif task_result.state == "FAILURE":
         return {

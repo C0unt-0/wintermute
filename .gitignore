@@ -25,6 +25,9 @@ mlruns/
 # macOS
 .DS_Store
 
+# Environment
+.env
+
 # IDE
 .vscode/
 .idea/
