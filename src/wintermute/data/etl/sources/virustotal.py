@@ -124,7 +124,7 @@ class VirusTotalSource(DataSource):
             label = 1
 
             # Try to read opcodes from cache directories
-            opcodes = self._find_cached_asm(sha256, cache_dirs)
+            opcodes = self._find_cached_asm(sha256, cache_dirs, min_opcodes)
 
             # Also check the processor's own cache_dir
             if not opcodes and processor.is_cached(sha256):
@@ -230,10 +230,11 @@ class VirusTotalSource(DataSource):
             return None
 
     @staticmethod
-    def _find_cached_asm(sha256: str, cache_dirs: list[str]) -> list[str] | None:
+    def _find_cached_asm(sha256: str, cache_dirs: list[str], min_opcodes: int) -> list[str] | None:
         """Scan multiple cache directories for a matching .asm file.
 
-        Returns the opcodes list, or None if not found.
+        Returns the opcodes list if found and meets *min_opcodes* threshold,
+        or None otherwise.
         """
         sha_lower = sha256.lower()
         for dir_path in cache_dirs:
@@ -245,13 +246,13 @@ class VirusTotalSource(DataSource):
             if candidate.is_file():
                 text = candidate.read_text()
                 opcodes = [line for line in text.splitlines() if line.strip()]
-                if opcodes:
+                if len(opcodes) >= min_opcodes:
                     return opcodes
             # Check nested layout: dir/<family>/<sha256>.asm
             for asm_file in d.rglob(f"{sha_lower}.asm"):
                 text = asm_file.read_text()
                 opcodes = [line for line in text.splitlines() if line.strip()]
-                if opcodes:
+                if len(opcodes) >= min_opcodes:
                     return opcodes
         return None
 

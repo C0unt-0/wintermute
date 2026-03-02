@@ -104,8 +104,11 @@ class ThreatFoxSource(DataSource):
             threat_type = ioc.get("threat_type", "") or ""
             tags = ioc.get("tags") or []
 
-            # Try to find cached .asm in cache_dirs
-            opcodes = self._find_cached_asm(sha256, cache_dirs, min_opcodes)
+            # Try to find cached .asm in cache_dirs + processor's own cache_dir
+            search_dirs = list(cache_dirs)
+            if str(processor.cache_dir) not in search_dirs:
+                search_dirs.append(str(processor.cache_dir))
+            opcodes = self._find_cached_asm(sha256, search_dirs, min_opcodes)
 
             if opcodes:
                 logger.debug(
