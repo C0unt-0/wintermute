@@ -28,7 +28,7 @@ endif
 # Defaults (overridden by .env or CLI: make dev API_PORT=8001)
 WINTERMUTE_DATABASE_URL ?= postgresql+psycopg://wintermute:wintermute_dev@localhost:5432/wintermute
 REDIS_URL ?= redis://localhost:6379/0
-API_PORT ?= 8000
+API_PORT ?= 9000
 
 # ── Help (default target) ────────────────────────────────────────────
 help: ## Show available targets
