@@ -61,3 +61,76 @@ sources:
     format: "auto"
     min_opcodes: 10
     max_samples_per_family: null
+
+  # ─── New sources ─────────────────────────────────────────────────
+
+  malshare:
+    enabled: false
+    api_key: ""                    # or MALSHARE_API_KEY env var
+    cache_dir: "data/malshare"
+    delay: 1.0
+    min_opcodes: 10
+    max_samples: 500
+    file_type: "PE32"
+
+  urlhaus:
+    enabled: false
+    cache_dir: "data/urlhaus"
+    delay: 1.0
+    min_opcodes: 10
+    max_samples: 500
+    recent_limit: 1000
+    file_types:
+      - "exe"
+      - "dll"
+
+  virustotal:
+    enabled: false
+    api_key: ""                    # or VT_API_KEY env var
+    cache_dir: "data/virustotal"
+    mode: "enrich"                 # "enrich" (free tier) or "download" (premium)
+    delay: 15.0                    # 4 req/min = 15s between requests
+    min_opcodes: 10
+    max_samples: 500
+    hash_file: ""                  # optional: path to file with one SHA256 per line
+    cache_dirs:
+      - "data/bazaar"
+      - "data/malshare"
+      - "data/urlhaus"
+    min_detection_ratio: 0.5
+
+  threatfox:
+    enabled: false
+    cache_dirs:
+      - "data/bazaar"
+      - "data/urlhaus"
+      - "data/malshare"
+    delay: 1.0
+    min_opcodes: 10
+    max_samples: 500
+    days: 7
+    download_missing: true
+    malware_families: []           # empty = all families
+
+  ember_dataset:
+    enabled: false
+    data_dir: "data/ember"
+    cache_dirs:
+      - "data/bazaar"
+      - "data/malshare"
+      - "data/urlhaus"
+    min_opcodes: 10
+    max_samples: null
+    include_benign: true
+
+  virusshare:
+    enabled: false
+    hash_dir: "data/virusshare"
+    cache_dirs:
+      - "data/bazaar"
+      - "data/malshare"
+      - "data/urlhaus"
+    api_key: ""                    # optional, env VIRUSSHARE_API_KEY
+    delay: 2.0
+    min_opcodes: 10
+    max_samples: 500

@@ -8,16 +8,12 @@ Consolidated from:
 
 from __future__ import annotations
 
-import io
-import os
-import tempfile
 import time
 from pathlib import Path
 
-import pyzipper
 import requests
 
-from wintermute.data.tokenizer import extract_opcodes_pe
+from wintermute.data.etl.pe_utils import PEProcessor
 
 
 # ---------------------------------------------------------------------------
@@ -40,9 +36,7 @@ class MalwareBazaarDownloader:
         self.out_dir = Path(out_dir)
         self.delay = delay
 
-    def query_family(
-        self, signature: str, limit: int = 200
-    ) -> list[dict]:
+    def query_family(self, signature: str, limit: int = 200) -> list[dict]:
         """
         Query MalwareBazaar for recent PE samples matching a family signature.
 
@@ -64,16 +58,12 @@ class MalwareBazaarDownloader:
             return []
 
         if result.get("query_status") != "ok":
-            print(f"  [WARN] No results for signature '{signature}': "
-                  f"{result.get('query_status')}")
+            print(f"  [WARN] No results for signature '{signature}': {result.get('query_status')}")
             return []
 
         samples = result.get("data", [])
         # Filter to PE file types only
-        pe_samples = [
-            s for s in samples
-            if s.get("file_type", "").lower() in PE_FILE_TYPES
-        ]
+        pe_samples = [s for s in samples if s.get("file_type", "").lower() in PE_FILE_TYPES]
         return pe_samples
 
     def download_sample(self, sha256: str) -> bytes | None:
@@ -86,9 +76,7 @@ class MalwareBazaarDownloader:
         params = {"query": "get_file", "sha256_hash": sha256}
 
         try:
-            resp = requests.post(
-                BAZAAR_API_URL, data=params, headers=headers, timeout=60
-            )
+            resp = requests.post(BAZAAR_API_URL, data=params, headers=headers, timeout=60)
             resp.raise_for_status()
             if resp.headers.get("Content-Type", "").startswith("application/json"):
                 # API returned an error in JSON
@@ -105,15 +93,7 @@ class MalwareBazaarDownloader:
 
         Returns the raw PE bytes, or None on failure.
         """
-        try:
-            with pyzipper.AESZipFile(io.BytesIO(zip_bytes)) as zf:
-                names = zf.namelist()
-                if not names:
-                    return None
-                return zf.read(names[0], pwd=password.encode())
-        except Exception as exc:
-            print(f"  [WARN] Unzip failed: {exc}")
-            return None
+        return PEProcessor.unzip_encrypted(zip_bytes, password)
 
     @staticmethod
     def disassemble_pe_bytes(pe_bytes: bytes) -> list[str]:
@@ -122,19 +102,7 @@ class MalwareBazaarDownloader:
 
         The temp file is deleted immediately after disassembly.
         """
-        tmp = None
-        try:
-            tmp = tempfile.NamedTemporaryFile(suffix=".exe", delete=False)
-            tmp.write(pe_bytes)
-            tmp.close()
-            opcodes = extract_opcodes_pe(tmp.name)
-            return opcodes
-        except Exception as exc:
-            print(f"  [ERROR] Disassembly failed: {exc}")
-            return []
-        finally:
-            if tmp and os.path.exists(tmp.name):
-                os.unlink(tmp.name)
+        return PEProcessor.disassemble_pe_bytes(pe_bytes)
 
     @staticmethod
     def save_asm_file(opcodes: list[str], dest: Path) -> None:
@@ -164,8 +132,13 @@ class MalwareBazaarDownloader:
         samples = self.query_family(signature, limit=limit)
         print(f"  Found {len(samples)} PE samples from API")
 
-        stats = {"queried": len(samples), "downloaded": 0, "disassembled": 0,
-                 "skipped": 0, "failed": 0}
+        stats = {
+            "queried": len(samples),
+            "downloaded": 0,
+            "disassembled": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
 
         for i, sample in enumerate(samples, 1):
             sha = sample["sha256_hash"]
